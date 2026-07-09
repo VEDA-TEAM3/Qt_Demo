@@ -21,7 +21,7 @@
 
 namespace {
 constexpr int initialReceiverStartDelayMsec = 1000;
-constexpr int receiverStartSpacingMsec = 2000;
+constexpr int receiverStartSpacingMsec = 3000;
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(std::make_shared<Ui::MainWindow>()) {

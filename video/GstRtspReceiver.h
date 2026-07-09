@@ -63,7 +63,7 @@ private:
     void teardownPipeline();
 
     /** 오류나 프레임 정지 상황에서 지수 백오프 방식으로 재연결을 예약합니다. */
-    void scheduleReconnect(const QString& reason);
+    void scheduleReconnect(const QString& reason, int overrideDelayMsec = 0);
 
     /** 현재 파이프라인을 정리하고 같은 RTSP 주소로 재연결을 예약합니다. */
     void restartPipeline(const QString& reason);

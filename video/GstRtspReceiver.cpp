@@ -13,9 +13,10 @@
 namespace {
 constexpr int busPollIntervalMsec = 200;
 constexpr int rtspLatencyMsec = 2000;
-constexpr int initialPacketTimeoutMsec = 3000;
-constexpr int initialFrameTimeoutMsec = 3000;
-constexpr int maxReconnectDelayMsec = 3000;
+constexpr int initialPacketTimeoutMsec = 5000;
+constexpr int initialFrameTimeoutMsec = 5000;
+constexpr int maxReconnectDelayMsec = 30000;
+constexpr int authenticationFailureReconnectDelayMsec = 120000;
 constexpr int stallTimeoutMsec = 10000; // 연결끊김 시 재연결 시간
 constexpr guint udpBufferSizeBytes = 1024 * 1024;
 constexpr qint64 minimumLoadingMsec = 700;
@@ -81,6 +82,36 @@ void setOptionalBooleanProperty(GstElement* element, const char* propertyName, g
 
     g_object_set(element, propertyName, value, nullptr);
 }
+
+bool hasCredentialPlaceholder(const QString& url) {
+    return url.contains(QStringLiteral(":PASSWORD@"), Qt::CaseInsensitive);
+}
+
+QString normalizedGstErrorText(GError* error, const gchar* debugInfo) {
+    const QString message = error ? QString::fromUtf8(error->message) : QStringLiteral("Unknown GStreamer error");
+    const QString debugText = debugInfo ? QString::fromUtf8(debugInfo) : QString();
+
+    if (debugText.contains(QStringLiteral("Account Blocked"), Qt::CaseInsensitive)) {
+        return QStringLiteral("RTSP account blocked (490): check password or wait for NVR account unlock");
+    }
+
+    if (debugText.contains(QStringLiteral("Unauthorized"), Qt::CaseInsensitive) ||
+        debugText.contains(QStringLiteral("(401)"), Qt::CaseInsensitive) ||
+        message.contains(QStringLiteral("Unauthorized"), Qt::CaseInsensitive)) {
+        return QStringLiteral("RTSP authentication failed: check user name/password");
+    }
+
+    if (message.compare(QStringLiteral("Unhandled error"), Qt::CaseInsensitive) == 0 && !debugText.isEmpty()) {
+        return QStringLiteral("RTSP error: %1").arg(debugText.section(QLatin1Char('\n'), -1).trimmed());
+    }
+
+    return message;
+}
+
+bool isAuthenticationFailure(const QString& errorText) {
+    return errorText.contains(QStringLiteral("account blocked"), Qt::CaseInsensitive) ||
+           errorText.contains(QStringLiteral("authentication failed"), Qt::CaseInsensitive);
+}
 }  // namespace
 
 GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, QObject* parent)
@@ -128,6 +159,13 @@ void GstRtspReceiver::startPipeline() {
 
     if (url_.isEmpty()) {
         emit errorOccurred("RTSP URL is empty");
+        return;
+    }
+
+    if (hasCredentialPlaceholder(url_)) {
+        emit loadingChanged(false);
+        emit errorOccurred(QStringLiteral("RTSP password placeholder is still set in network/rtsp.h"));
+        emit statusChanged(QStringLiteral("RTSP configuration error"));
         return;
     }
 
@@ -354,13 +392,14 @@ void GstRtspReceiver::teardownPipeline() {
     windowHandle_ = 0;
 }
 
-void GstRtspReceiver::scheduleReconnect(const QString& reason) {
+void GstRtspReceiver::scheduleReconnect(const QString& reason, int overrideDelayMsec) {
     if (manualStop_ || reconnectTimer_.isActive()) {
         return;
     }
 
     const int backoffStep = std::min(reconnectAttempts_, 4);
-    const int delayMsec = std::min(maxReconnectDelayMsec, 1000 << backoffStep);
+    const int delayMsec =
+        overrideDelayMsec > 0 ? overrideDelayMsec : std::min(maxReconnectDelayMsec, 1000 << backoffStep);
     ++reconnectAttempts_;
 
     emit loadingChanged(true);
@@ -679,7 +718,7 @@ void GstRtspReceiver::pollBus() {
 
                 gst_message_parse_error(msg, &err, &debugInfo);
 
-                const QString errorText = err ? QString::fromUtf8(err->message) : "Unknown GStreamer error";
+                const QString errorText = normalizedGstErrorText(err, debugInfo);
 
                 qDebug().noquote() << "[GStreamer Error]" << errorText;
                 emit errorOccurred(errorText);
@@ -697,7 +736,8 @@ void GstRtspReceiver::pollBus() {
                 gst_object_unref(bus);
 
                 teardownPipeline();
-                scheduleReconnect(errorText);
+                scheduleReconnect(errorText,
+                                  isAuthenticationFailure(errorText) ? authenticationFailureReconnectDelayMsec : 0);
                 return;
             }
 

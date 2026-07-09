@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDebug>
 #include <QFile>
+#include <QIcon>
 #include <QStringList>
 
 #include "ui/mainwindow.h"
@@ -33,10 +34,12 @@ int main(int argc, char* argv[]) {
 
     {
         QApplication app(argc, argv);
+        app.setWindowIcon(QIcon(QStringLiteral(":/icons/main.png")));
         loadApplicationStyle(app);
 
         {
             MainWindow window;
+            window.setWindowIcon(app.windowIcon());
             window.resize(1680, 945);
             window.show();
 

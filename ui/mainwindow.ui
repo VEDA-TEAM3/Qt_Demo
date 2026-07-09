@@ -19,9 +19,6 @@
   <property name="windowTitle">
    <string>Wise AI Parking Safety Control</string>
   </property>
-  <property name="windowIcon">
-   <iconset theme="QIcon::ThemeIcon::CameraVideo"/>
-  </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QHBoxLayout" name="rootLayout">
     <property name="spacing">
@@ -391,20 +388,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QFrame" name="mapPlaceholderFrame">
-              <layout class="QVBoxLayout" name="mapPlaceholderLayout">
-               <item>
-                <widget class="QLabel" name="mapPlaceholderLabel">
-                 <property name="text">
-                  <string>MAP AREA</string>
-                 </property>
-                 <property name="alignment">
-                  <set>Qt::AlignmentFlag::AlignCenter</set>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
+             <widget class="DigitalTwinMapWidget" name="digitalTwinMapWidget"/>
             </item>
            </layout>
           </widget>
@@ -588,6 +572,11 @@
    <extends>QWidget</extends>
    <header>ClickableVideoWidget.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>DigitalTwinMapWidget</class>
+   <extends>QGraphicsView</extends>
+   <header>DigitalTwinMapWidget.h</header>
   </customwidget>
  </customwidgets>
  <resources/>
