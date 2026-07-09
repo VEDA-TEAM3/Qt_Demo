@@ -7,9 +7,16 @@
 #include "../model/StreamConfig.h"
 
 class GstRtspReceiver;
+class QThread;
 class QShowEvent;
 class QWidget;
 class ClickableVideoWidget;
+
+/** worker thread와 그 안에서 동작하는 receiver 객체를 하나의 수명 단위로 묶습니다. */
+struct ReceiverWorker {
+    std::shared_ptr<QThread> thread;
+    std::shared_ptr<GstRtspReceiver> receiver;
+};
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -64,7 +71,7 @@ private:
 private:
     std::shared_ptr<Ui::MainWindow> ui;
 
-    QVector<std::shared_ptr<GstRtspReceiver>> receivers_;
+    QVector<ReceiverWorker> receiverWorkers_;
     bool receiversStarted_ = false;
 
     QVector<QWidget*> videoWidgets_;

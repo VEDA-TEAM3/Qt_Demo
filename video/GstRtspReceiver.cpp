@@ -5,6 +5,7 @@
 
 #include <QDebug>
 #include <QMetaObject>
+#include <QThread>
 #include <QUrl>
 #include <algorithm>
 #include <cstring>
@@ -12,10 +13,10 @@
 namespace {
 constexpr int busPollIntervalMsec = 200;
 constexpr int rtspLatencyMsec = 2000;
-constexpr int initialPacketTimeoutMsec = 10000;
-constexpr int initialFrameTimeoutMsec = 10000;
-constexpr int stallTimeoutMsec = 10000;
-constexpr int maxReconnectDelayMsec = 10000;
+constexpr int initialPacketTimeoutMsec = 3000;
+constexpr int initialFrameTimeoutMsec = 3000;
+constexpr int maxReconnectDelayMsec = 3000;
+constexpr int stallTimeoutMsec = 10000; // 연결끊김 시 재연결 시간
 constexpr guint udpBufferSizeBytes = 1024 * 1024;
 constexpr qint64 minimumLoadingMsec = 700;
 
@@ -82,13 +83,8 @@ void setOptionalBooleanProperty(GstElement* element, const char* propertyName, g
 }
 }  // namespace
 
-GstRtspReceiver::GstRtspReceiver(QWidget* outputWidget, QObject* parent)
-    : QObject(parent), outputWidget_(outputWidget) {
-    if (outputWidget_) {
-        outputWidget_->setAttribute(Qt::WA_NativeWindow);
-        outputWidget_->setAttribute(Qt::WA_DontCreateNativeAncestors);
-    }
-
+GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, QObject* parent)
+    : QObject(parent), outputWindowHandle_(outputWindowHandle) {
     busTimer_.setTimerType(Qt::PreciseTimer);
     reconnectTimer_.setSingleShot(true);
 
@@ -100,6 +96,16 @@ GstRtspReceiver::GstRtspReceiver(QWidget* outputWidget, QObject* parent)
 GstRtspReceiver::~GstRtspReceiver() { stop(); }
 
 void GstRtspReceiver::setUrl(const QString& url) { url_ = url.trimmed(); }
+
+void GstRtspReceiver::moveInternalObjectsToThread(QThread* thread) {
+    if (!thread) {
+        return;
+    }
+
+    busTimer_.moveToThread(thread);
+    reconnectTimer_.moveToThread(thread);
+    moveToThread(thread);
+}
 
 void GstRtspReceiver::start() {
     manualStop_ = false;
@@ -115,8 +121,8 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
-    if (!outputWidget_) {
-        emit errorOccurred("Output widget is null");
+    if (outputWindowHandle_ == 0) {
+        emit errorOccurred("Output window handle is invalid");
         return;
     }
 
@@ -139,11 +145,11 @@ void GstRtspReceiver::startPipeline() {
     startupTimer_.restart();
     emit loadingChanged(true);
 
-    windowHandle_ = static_cast<guintptr>(outputWidget_->winId());
+    windowHandle_ = outputWindowHandle_;
 
     if (!windowHandle_) {
-        emit errorOccurred("Invalid video widget handle");
-        scheduleReconnect("invalid video widget handle");
+        emit errorOccurred("Invalid video window handle");
+        scheduleReconnect("invalid video window handle");
         return;
     }
 
@@ -687,18 +693,8 @@ void GstRtspReceiver::pollBus() {
                     g_error_free(err);
                 }
 
-                const bool outputWindowClosed =
-                    errorText.contains(QStringLiteral("Output window was closed"), Qt::CaseInsensitive);
-                const bool canRestartOutput = !outputWindowClosed || (outputWidget_ && outputWidget_->isVisible());
-
                 gst_message_unref(msg);
                 gst_object_unref(bus);
-
-                if (!canRestartOutput) {
-                    teardownPipeline();
-                    emit loadingChanged(false);
-                    return;
-                }
 
                 teardownPipeline();
                 scheduleReconnect(errorText);

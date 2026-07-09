@@ -4,8 +4,10 @@
 #include <QEvent>
 #include <QGridLayout>
 #include <QLabel>
+#include <QMetaObject>
 #include <QShowEvent>
 #include <QSizePolicy>
+#include <QThread>
 #include <QTimer>
 #include <QVector>
 #include <QWidget>
@@ -19,7 +21,7 @@
 
 namespace {
 constexpr int initialReceiverStartDelayMsec = 1000;
-constexpr int receiverStartSpacingMsec = 5000;
+constexpr int receiverStartSpacingMsec = 2000;
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), ui(std::make_shared<Ui::MainWindow>()) {
@@ -44,13 +46,40 @@ void MainWindow::setupDashboardLayout() {
 }
 
 MainWindow::~MainWindow() {
-    while (!receivers_.isEmpty()) {
-        const auto receiver = receivers_.takeLast();
+    QThread* mainThread = QThread::currentThread();
 
-        if (receiver) {
+    for (const auto& worker : receiverWorkers_) {
+        const auto& receiver = worker.receiver;
+
+        if (!receiver) {
+            continue;
+        }
+
+        if (receiver->thread() && receiver->thread() != mainThread && receiver->thread()->isRunning()) {
+            QMetaObject::invokeMethod(
+                receiver.get(), [receiver = receiver.get(), mainThread]() {
+                    receiver->stop();
+                    receiver->moveInternalObjectsToThread(mainThread);
+                },
+                Qt::BlockingQueuedConnection);
+        } else {
             receiver->stop();
+            receiver->moveInternalObjectsToThread(mainThread);
         }
     }
+
+    for (const auto& worker : receiverWorkers_) {
+        const auto& thread = worker.thread;
+
+        if (!thread) {
+            continue;
+        }
+
+        thread->quit();
+        thread->wait();
+    }
+
+    receiverWorkers_.clear();
 }
 
 void MainWindow::showEvent(QShowEvent* event) {
@@ -184,8 +213,22 @@ void MainWindow::setupReceivers() {
             continue;
         }
 
-        auto receiver = std::make_shared<GstRtspReceiver>(videoWidgets_[i]);
+        QWidget* outputWidget = videoWidgets_[i];
+
+        if (!outputWidget) {
+            continue;
+        }
+
+        outputWidget->setAttribute(Qt::WA_NativeWindow);
+        outputWidget->setAttribute(Qt::WA_DontCreateNativeAncestors);
+
+        const auto outputWindowHandle = static_cast<guintptr>(outputWidget->winId());
+        auto receiverThread = std::make_shared<QThread>();
+        receiverThread->setObjectName(QString("%1-worker").arg(config.cameraId));
+
+        auto receiver = std::make_shared<GstRtspReceiver>(outputWindowHandle);
         receiver->setUrl(config.url);
+        receiver->moveInternalObjectsToThread(receiverThread.get());
 
         connect(receiver.get(), &GstRtspReceiver::statusChanged, this, [config](const QString& status) {
             qDebug().noquote() << QString("[%1 Status]").arg(config.cameraId) << config.name << status;
@@ -195,13 +238,15 @@ void MainWindow::setupReceivers() {
             qDebug().noquote() << QString("[%1 Error]").arg(config.cameraId) << config.name << error;
         });
 
-        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(videoWidgets_[i])) {
+        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(outputWidget)) {
             videoWidget->setLoading(true);
 
             connect(receiver.get(), &GstRtspReceiver::loadingChanged, videoWidget, &ClickableVideoWidget::setLoading);
         }
 
-        receivers_.append(receiver);
+        receiverThread->start();
+
+        receiverWorkers_.append({receiverThread, receiver});
     }
 }
 
@@ -210,12 +255,12 @@ void MainWindow::startReceivers() {
 }
 
 void MainWindow::startReceiverSequentially(int receiverIndex) {
-    if (receiverIndex >= receivers_.size()) {
+    if (receiverIndex >= receiverWorkers_.size()) {
         qDebug().noquote() << "[MainWindow] All receivers requested";
         return;
     }
 
-    const auto receiver = receivers_[receiverIndex];
+    const auto receiver = receiverWorkers_[receiverIndex].receiver;
 
     if (!receiver) {
         QTimer::singleShot(0, this, [this, receiverIndex]() { startReceiverSequentially(receiverIndex + 1); });
@@ -223,7 +268,7 @@ void MainWindow::startReceiverSequentially(int receiverIndex) {
     }
 
     qDebug().noquote() << QString("[CAM-%1] start").arg(receiverIndex + 1);
-    receiver->start();
+    QMetaObject::invokeMethod(receiver.get(), [receiver]() { receiver->start(); }, Qt::QueuedConnection);
 
     QTimer::singleShot(receiverStartSpacingMsec, this,
                        [this, receiverIndex]() { startReceiverSequentially(receiverIndex + 1); });

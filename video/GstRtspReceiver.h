@@ -7,20 +7,24 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
-#include <QWidget>
 #include <atomic>
+
+class QThread;
 
 /** 단일 RTSP 카메라 스트림을 GStreamer로 수신해 네이티브 QWidget에 출력합니다. */
 class GstRtspReceiver : public QObject {
     Q_OBJECT
 
 public:
-    /** 영상이 렌더링될 대상 위젯을 받아 수신기 상태와 타이머를 준비합니다. */
-    explicit GstRtspReceiver(QWidget* outputWidget, QObject* parent = nullptr);
+    /** UI thread에서 미리 얻은 네이티브 창 핸들을 받아 수신기 상태와 타이머를 준비합니다. */
+    explicit GstRtspReceiver(guintptr outputWindowHandle, QObject* parent = nullptr);
     ~GstRtspReceiver() override;
 
     /** start() 호출 전에 사용할 RTSP 주소를 설정합니다. */
     void setUrl(const QString& url);
+
+    /** receiver 본체와 내부 타이머를 같은 Qt thread로 이동합니다. */
+    void moveInternalObjectsToThread(QThread* thread);
 
     /** GStreamer RTSP 파이프라인을 시작하거나 재시작합니다. */
     void start();
@@ -94,7 +98,7 @@ private:
     /** GStreamer 영상 출력 sink가 요청하는 네이티브 창 핸들을 전달합니다. */
     static GstBusSyncReply onBusSyncMessage(GstBus* bus, GstMessage* message, gpointer userData);
 
-    QWidget* outputWidget_ = nullptr;
+    guintptr outputWindowHandle_ = 0;
     QString url_;
 
     GstElement* pipeline_ = nullptr;
