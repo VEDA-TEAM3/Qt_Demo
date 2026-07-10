@@ -23,9 +23,6 @@ qt_add_executable(Qtcctvclient
 
     src/main.cpp
 
-    include/ClickableVideoWidget.h
-    include/DigitalTwinMapWidget.h
-
     include/ui/mainwindow.h
     src/ui/mainwindow.cpp
     src/ui/mainwindow.ui

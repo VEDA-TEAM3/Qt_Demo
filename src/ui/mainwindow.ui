@@ -612,13 +612,13 @@
   <customwidget>
    <class>ClickableVideoWidget</class>
    <extends>QWidget</extends>
-   <header>ClickableVideoWidget.h</header>
+   <header>ui/ClickableVideoWidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>DigitalTwinMapWidget</class>
    <extends>QGraphicsView</extends>
-   <header>DigitalTwinMapWidget.h</header>
+   <header>ui/DigitalTwinMapWidget.h</header>
   </customwidget>
  </customwidgets>
  <resources/>
