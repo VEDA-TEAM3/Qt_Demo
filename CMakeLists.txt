@@ -21,26 +21,45 @@ qt_add_executable(Qtcctvclient
     .clang-tidy
     C_CppCodingConvention.md
 
-    main.cpp
+    src/main.cpp
 
-    ui/mainwindow.h
-    ui/mainwindow.cpp
-    ui/mainwindow.ui
-    ui/ClickableVideoWidget.h
-    ui/ClickableVideoWidget.cpp
-    ui/DashboardLayout.h
-    ui/DigitalTwinMapWidget.h
-    ui/DigitalTwinMapWidget.cpp
+    include/ClickableVideoWidget.h
+    include/DigitalTwinMapWidget.h
 
-    video/GstRtspReceiver.h
-    video/GstRtspReceiver.cpp
+    include/ui/mainwindow.h
+    src/ui/mainwindow.cpp
+    src/ui/mainwindow.ui
+    include/ui/ClickableVideoWidget.h
+    src/ui/ClickableVideoWidget.cpp
+    include/ui/DashboardLayout.h
+    include/ui/DigitalTwinMapWidget.h
+    src/ui/DigitalTwinMapWidget.cpp
+    include/ui/DigitalTwinMapSceneBuilder.h
+    src/ui/DigitalTwinMapSceneBuilder.cpp
+    include/ui/DigitalTwinObjectStyleProvider.h
+    src/ui/DigitalTwinObjectStyleProvider.cpp
 
-    model/DigitalTwinTypes.h
-    model/DigitalTwinSimulationWorker.h
-    model/DigitalTwinSimulationWorker.cpp
-    model/StreamConfig.h
+    include/overlays/RadarPulseItem.h
+    src/overlays/RadarPulseItem.cpp
+    include/overlays/OverlayManager.h
+    src/overlays/OverlayManager.cpp
 
-    network/rtsp.h
+    include/video/StreamReceiver.h
+    include/video/StreamReceiverFactory.h
+    src/video/GstStreamReceiverFactory.cpp
+    include/video/GstRtspReceiver.h
+    src/video/GstRtspReceiver.cpp
+
+    include/model/DigitalTwinTypes.h
+    include/model/DigitalTwinObjectSpawner.h
+    src/model/RandomEdgeObjectSpawner.cpp
+    include/model/DigitalTwinRiskPolicy.h
+    include/model/DigitalTwinSimulationWorker.h
+    src/model/DigitalTwinSimulationWorker.cpp
+    src/model/DistanceRiskPolicy.cpp
+    include/model/StreamConfig.h
+
+    include/network/rtsp.h
 )
 
 qt_add_resources(Qtcctvclient "style_resources"
@@ -58,16 +77,19 @@ qt_add_resources(Qtcctvclient "icon_resources"
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_warning.png"
 )
 
 target_include_directories(Qtcctvclient PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
 
     "${GSTREAMER_ROOT}/include/gstreamer-1.0"
     "${GSTREAMER_ROOT}/include/glib-2.0"

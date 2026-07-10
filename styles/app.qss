@@ -1,0 +1,208 @@
+* {
+    font-family: "Segoe UI", "Malgun Gothic";
+    font-size: 14px;
+    color: #d8e3f2;
+    background-color: #07111d;
+    selection-background-color: #1f6feb;
+    selection-color: #ffffff;
+}
+
+QMainWindow,
+QWidget,
+QWidget#centralwidget,
+QWidget#mainContent {
+    background-color: #07111d;
+}
+
+QLabel {
+    background-color: transparent;
+}
+
+QFrame#sidebarFrame {
+    background-color: #060e19;
+    border-right: 1px solid #1c2b3d;
+}
+
+QLabel#menuIconLabel {
+    color: #9fb2c8;
+    font-size: 15px;
+    font-weight: 800;
+    padding: 0 6px 16px 6px;
+}
+
+QLabel#navDashboard, QLabel#navCctv, QLabel#navTwin, QLabel#navEvents,
+QLabel#navControl, QLabel#navStats, QLabel#navReports, QLabel#navSystem, QLabel#navCollapse {
+    color: #b5c4d6;
+    min-height: 34px;
+    padding: 6px 10px;
+    border-radius: 7px;
+}
+
+QLabel#navDashboard {
+    color: #eff6ff;
+    background-color: #123f86;
+    border: 1px solid #2f72d8;
+    font-weight: 800;
+}
+
+QLabel#navCctv:hover, QLabel#navTwin:hover, QLabel#navEvents:hover,
+QLabel#navControl:hover, QLabel#navStats:hover, QLabel#navReports:hover, QLabel#navSystem:hover {
+    background-color: #0d1a2a;
+    color: #ffffff;
+}
+
+QLabel#navCollapse {
+    color: #8293a8;
+    border-top: 1px solid #1c2b3d;
+    border-radius: 0;
+}
+
+QFrame#topBarFrame {
+    background-color: #07111d;
+    border-bottom: 1px solid #1c2b3d;
+}
+
+QLabel#titleLabel {
+    color: #f6f9ff;
+    font-size: 25px;
+    font-weight: 900;
+}
+
+QLabel#dateLabel {
+    color: #d3dce9;
+    font-size: 14px;
+}
+
+QLabel#systemStatusLabel {
+    color: #39e75f;
+    font-weight: 800;
+    padding-left: 14px;
+    border-left: 1px solid #26384d;
+}
+
+QLabel#safeLabel {
+    color: #39e75f;
+    font-weight: 800;
+    padding-right: 14px;
+}
+
+QLabel#warnLabel {
+    color: #FDFD00;
+    font-weight: 800;
+    padding-right: 14px;
+}
+
+QLabel#dangerLabel {
+    color: #FD0002;
+    font-weight: 800;
+    padding-right: 14px;
+}
+
+QLabel#separateLabel_1, QLabel#separateLabel_2, QLabel#separateLabel_3 {
+    color: #26384D;
+    font-weight: 800;
+}
+
+QLabel#settingsLabel {
+    color: #dbe7f5;
+    background-color: #0c1827;
+    border: 1px solid #26384d;
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-weight: 800;
+}
+
+QFrame#topSectionFrame, QFrame#bottomSectionFrame {
+    background-color: transparent;
+    border: 0;
+}
+
+QFrame#cctvCard, QFrame#mapCard, QFrame#eventLogCard, QFrame#deviceStatusCard,
+QFrame#riskSummaryCard, QFrame#objectListCard, QFrame#legendFrame {
+    background-color: #0d1724;
+    border: 1px solid #26384d;
+    border-radius: 8px;
+}
+
+QLabel#monitorTitleLabel, QLabel#mapTitleLabel, QLabel#eventLogTitleLabel,
+QLabel#deviceStatusTitleLabel, QLabel#riskSummaryTitleLabel, QLabel#objectListTitleLabel {
+    color: #f5f8ff;
+    font-size: 16px;
+    font-weight: 900;
+}
+
+QLabel#cameraSelectLabel {
+    background-color: #091321;
+    border: 1px solid #26384d;
+    border-radius: 6px;
+    color: #d5e2f1;
+    padding: 6px 12px;
+}
+
+QFrame#mapPlaceholderFrame, QFrame#eventLogBodyFrame, QFrame#deviceStatusBodyFrame,
+QFrame#riskSummaryBodyFrame, QFrame#objectListBodyFrame {
+    background-color: #08111d;
+    border: 1px solid #1d2c3f;
+    border-radius: 6px;
+}
+
+DigitalTwinMapWidget#digitalTwinMapWidget {
+    background-color: #08111d;
+    border: 1px solid #1d2c3f;
+    border-radius: 6px;
+}
+
+QLabel#mapPlaceholderLabel {
+    color: #45566c;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+ClickableVideoWidget {
+    background-color: #040a12;
+    border: 1px solid #1d2c3f;
+    border-radius: 6px;
+}
+
+ClickableVideoWidget[loading="true"] {
+    border: 1px solid #2f72d8;
+}
+
+QFrame#videoLoadingOverlay {
+    background-color: rgba(5, 12, 22, 235);
+    border-radius: 6px;
+}
+
+QLabel#videoLoadingLabel {
+    color: #bfd0e5;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0px;
+}
+
+QLabel#legendLabel {
+    color: #b9c8da;
+    font-weight: 700;
+}
+
+QStatusBar, QMenuBar {
+    background-color: #07111d;
+    color: #aab8ca;
+}
+
+QScrollBar:vertical, QScrollBar:horizontal {
+    background-color: #07111d;
+    border: 0;
+    width: 10px;
+    height: 10px;
+}
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background-color: #26384d;
+    border-radius: 5px;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+}
