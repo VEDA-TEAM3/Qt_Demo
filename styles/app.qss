@@ -1,9 +1,9 @@
 * {
     font-family: "Segoe UI", "Malgun Gothic";
     font-size: 14px;
-    color: #d8e3f2;
-    background-color: #07111d;
-    selection-background-color: #1f6feb;
+    color: #e3edf9;
+    background-color: #030a14;
+    selection-background-color: #2b78f0;
     selection-color: #ffffff;
 }
 
@@ -11,7 +11,7 @@ QMainWindow,
 QWidget,
 QWidget#centralwidget,
 QWidget#mainContent {
-    background-color: #07111d;
+    background-color: #030a14;
 }
 
 QLabel {
@@ -19,12 +19,12 @@ QLabel {
 }
 
 QFrame#sidebarFrame {
-    background-color: #060e19;
-    border-right: 1px solid #1c2b3d;
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #061323, stop:1 #091a2d);
+    border-right: 1px solid #314968;
 }
 
 QLabel#menuIconLabel {
-    color: #9fb2c8;
+    color: #a9bad1;
     font-size: 15px;
     font-weight: 800;
     padding: 0 6px 16px 6px;
@@ -32,81 +32,88 @@ QLabel#menuIconLabel {
 
 QLabel#navDashboard, QLabel#navCctv, QLabel#navTwin, QLabel#navEvents,
 QLabel#navControl, QLabel#navStats, QLabel#navReports, QLabel#navSystem, QLabel#navCollapse {
-    color: #b5c4d6;
+    color: #b8c7da;
     min-height: 34px;
     padding: 6px 10px;
     border-radius: 7px;
 }
 
 QLabel#navDashboard {
-    color: #eff6ff;
-    background-color: #123f86;
-    border: 1px solid #2f72d8;
+    color: #f4f9ff;
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1c6ee8, stop:1 #16499d);
+    border: 1px solid #65a2ff;
     font-weight: 800;
 }
 
 QLabel#navCctv:hover, QLabel#navTwin:hover, QLabel#navEvents:hover,
 QLabel#navControl:hover, QLabel#navStats:hover, QLabel#navReports:hover, QLabel#navSystem:hover {
-    background-color: #0d1a2a;
+    background-color: #132943;
     color: #ffffff;
 }
 
 QLabel#navCollapse {
-    color: #8293a8;
-    border-top: 1px solid #1c2b3d;
+    color: #8799ad;
+    border-top: 1px solid #24364b;
     border-radius: 0;
 }
 
 QFrame#topBarFrame {
-    background-color: #07111d;
-    border-bottom: 1px solid #1c2b3d;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0c2036, stop:1 #06111f);
+    border-bottom: 1px solid #314968;
 }
 
 QLabel#titleLabel {
-    color: #f6f9ff;
+    color: #ffffff;
     font-size: 25px;
     font-weight: 900;
 }
 
 QLabel#dateLabel {
-    color: #d3dce9;
+    color: #d5dfec;
     font-size: 14px;
 }
 
 QLabel#systemStatusLabel {
-    color: #39e75f;
+    color: #38e86a;
     font-weight: 800;
     padding-left: 14px;
-    border-left: 1px solid #26384d;
+    border-left: 1px solid #2b4058;
+}
+
+QLabel#connectionStatusLabel {
+    color: #38e86a;
+    font-weight: 800;
+    padding-left: 14px;
+    border-left: 1px solid #2b4058;
 }
 
 QLabel#safeLabel {
-    color: #39e75f;
+    color: #38e86a;
     font-weight: 800;
     padding-right: 14px;
 }
 
 QLabel#warnLabel {
-    color: #FDFD00;
+    color: #ffd21f;
     font-weight: 800;
     padding-right: 14px;
 }
 
 QLabel#dangerLabel {
-    color: #FD0002;
+    color: #ff4b4b;
     font-weight: 800;
     padding-right: 14px;
 }
 
 QLabel#separateLabel_1, QLabel#separateLabel_2, QLabel#separateLabel_3 {
-    color: #26384D;
+    color: #2b4058;
     font-weight: 800;
 }
 
 QLabel#settingsLabel {
-    color: #dbe7f5;
-    background-color: #0c1827;
-    border: 1px solid #26384d;
+    color: #e5eefb;
+    background-color: #13263c;
+    border: 1px solid #476684;
     border-radius: 7px;
     padding: 8px 12px;
     font-weight: 800;
@@ -119,62 +126,86 @@ QFrame#topSectionFrame, QFrame#bottomSectionFrame {
 
 QFrame#cctvCard, QFrame#mapCard, QFrame#eventLogCard, QFrame#deviceStatusCard,
 QFrame#riskSummaryCard, QFrame#objectListCard, QFrame#legendFrame {
-    background-color: #0d1724;
-    border: 1px solid #26384d;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #12263d, stop:0.46 #0c1a2d, stop:1 #071221);
+    border: 1px solid #3f5b78;
     border-radius: 8px;
 }
 
 QLabel#monitorTitleLabel, QLabel#mapTitleLabel, QLabel#eventLogTitleLabel,
 QLabel#deviceStatusTitleLabel, QLabel#riskSummaryTitleLabel, QLabel#objectListTitleLabel {
-    color: #f5f8ff;
+    color: #ffffff;
     font-size: 16px;
     font-weight: 900;
 }
 
 QLabel#cameraSelectLabel {
-    background-color: #091321;
-    border: 1px solid #26384d;
+    background-color: #0d1d31;
+    border: 1px solid #476684;
     border-radius: 6px;
-    color: #d5e2f1;
+    color: #dce8f8;
     padding: 6px 12px;
 }
 
 QFrame#mapPlaceholderFrame, QFrame#eventLogBodyFrame, QFrame#deviceStatusBodyFrame,
 QFrame#riskSummaryBodyFrame, QFrame#objectListBodyFrame {
-    background-color: #08111d;
-    border: 1px solid #1d2c3f;
+    background-color: #06111f;
+    border: 1px solid #304966;
     border-radius: 6px;
 }
 
+QTableView#objectListTable {
+    background-color: transparent;
+    border: 0;
+    color: #e5eefb;
+    font-size: 12px;
+    gridline-color: #304966;
+    outline: 0;
+}
+
+QTableView#objectListTable::item {
+    border-bottom: 1px solid #243b56;
+    padding: 3px 4px;
+}
+
+QTableView#objectListTable QHeaderView::section {
+    background-color: #0f2034;
+    border: 0;
+    border-bottom: 1px solid #3f5b78;
+    color: #d3dfef;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 4px 4px;
+}
+
 DigitalTwinMapWidget#digitalTwinMapWidget {
-    background-color: #08111d;
-    border: 1px solid #1d2c3f;
+    background-color: #06111f;
+    border: 1px solid #304966;
     border-radius: 6px;
 }
 
 QLabel#mapPlaceholderLabel {
-    color: #45566c;
+    color: #4e6076;
     font-size: 22px;
     font-weight: 900;
 }
 
 ClickableVideoWidget {
-    background-color: #040a12;
-    border: 1px solid #1d2c3f;
+    background-color: #020712;
+    border: 1px solid #304966;
     border-radius: 6px;
 }
 
 ClickableVideoWidget[loading="true"] {
-    border: 1px solid #2f72d8;
+    border: 1px solid #4388f2;
 }
 
 QFrame#videoLoadingOverlay {
-    background-color: rgba(5, 12, 22, 235);
+    background-color: rgba(5, 13, 24, 238);
     border-radius: 6px;
 }
 
 QLabel#videoLoadingLabel {
-    color: #bfd0e5;
+    color: #c8d7ea;
     font-size: 13px;
     font-weight: 800;
     letter-spacing: 0px;
@@ -186,19 +217,19 @@ QLabel#legendLabel {
 }
 
 QStatusBar, QMenuBar {
-    background-color: #07111d;
-    color: #aab8ca;
+    background-color: #030a14;
+    color: #aebdd0;
 }
 
 QScrollBar:vertical, QScrollBar:horizontal {
-    background-color: #07111d;
+    background-color: #06111f;
     border: 0;
     width: 10px;
     height: 10px;
 }
 
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
-    background-color: #26384d;
+    background-color: #476684;
     border-radius: 5px;
 }
 

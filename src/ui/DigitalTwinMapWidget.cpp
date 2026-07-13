@@ -33,9 +33,7 @@ constexpr double movingIconRotationOffsetDegrees = 90.0;
  * @param value  입력 값
  * @return       절댓값
  */
-double absoluteValue(double value) {
-    return value < 0.0 ? -value : value;
-}
+double absoluteValue(double value) { return value < 0.0 ? -value : value; }
 
 /**
  * @brief           객체 속도 벡터를 화면 아이콘 회전 각도로 근사합니다.
@@ -164,15 +162,26 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
  */
 DigitalTwinMapWidget::~DigitalTwinMapWidget() {
     if (simulationWorker_) {
-        disconnect(simulationWorker_, nullptr, this, nullptr);
+        disconnect(simulationWorker_.get(), nullptr, this, nullptr);
     }
 
     stopDemo();
     overlayManager_.clear();
 
+    if (simulationWorker_ && simulationWorker_->thread() == &simulationThread_ && simulationThread_.isRunning()) {
+        QThread* ownerThread = thread();
+        QMetaObject::invokeMethod(
+            simulationWorker_.get(),
+            [worker = simulationWorker_.get(), ownerThread]() {
+                worker->stop();
+                worker->moveToThread(ownerThread);
+            },
+            Qt::BlockingQueuedConnection);
+    }
+
     simulationThread_.quit();
     simulationThread_.wait();
-    simulationWorker_ = nullptr;
+    simulationWorker_.reset();
 }
 
 /**
@@ -183,7 +192,7 @@ void DigitalTwinMapWidget::startDemo() {
         return;
     }
 
-    QMetaObject::invokeMethod(simulationWorker_, &DigitalTwinSimulationWorker::start, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(simulationWorker_.get(), &DigitalTwinSimulationWorker::start, Qt::QueuedConnection);
 }
 
 /**
@@ -194,7 +203,8 @@ void DigitalTwinMapWidget::stopDemo() {
         return;
     }
 
-    QMetaObject::invokeMethod(simulationWorker_, &DigitalTwinSimulationWorker::stop, Qt::BlockingQueuedConnection);
+    QMetaObject::invokeMethod(simulationWorker_.get(), &DigitalTwinSimulationWorker::stop,
+                              Qt::BlockingQueuedConnection);
 }
 
 /**
@@ -221,13 +231,12 @@ void DigitalTwinMapWidget::setupScene() {
  * @brief   객체 이동과 위험 판정을 담당하는 worker를 별도 스레드에 연결합니다.
  */
 void DigitalTwinMapWidget::setupSimulationWorker() {
-    simulationWorker_ = new DigitalTwinSimulationWorker();
+    simulationWorker_ = std::make_shared<DigitalTwinSimulationWorker>();
     simulationWorker_->moveToThread(&simulationThread_);
 
-    connect(&simulationThread_, &QThread::finished, simulationWorker_, &QObject::deleteLater);
-    connect(simulationWorker_, &DigitalTwinSimulationWorker::objectsUpdated, this,
+    connect(simulationWorker_.get(), &DigitalTwinSimulationWorker::objectsUpdated, this,
             &DigitalTwinMapWidget::applyObjectUpdates);
-    connect(simulationWorker_, &DigitalTwinSimulationWorker::riskEventDetected, this,
+    connect(simulationWorker_.get(), &DigitalTwinSimulationWorker::riskEventDetected, this,
             &DigitalTwinMapWidget::showRiskPulse, Qt::QueuedConnection);
 
     simulationThread_.setObjectName(QStringLiteral("digital-twin-simulation"));
@@ -248,7 +257,7 @@ void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& 
             continue;
         }
 
-        const int visualIndex = visualItemIndexes_.value(object.objectId);
+        const qsizetype visualIndex = visualItemIndexes_.value(object.objectId);
 
         if (visualIndex < 0 || visualIndex >= demoItems_.size()) {
             continue;
@@ -264,6 +273,8 @@ void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& 
     if (createdNewItem) {
         fitMapInView();
     }
+
+    emit objectListUpdated(objects);
 }
 
 /**
@@ -272,12 +283,7 @@ void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& 
  */
 void DigitalTwinMapWidget::showRiskPulse(const DigitalTwinRiskEvent& event) {
     if (QThread::currentThread() != thread()) {
-        QMetaObject::invokeMethod(
-            this,
-            [this, event]() {
-                showRiskPulse(event);
-            },
-            Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [this, event]() { showRiskPulse(event); }, Qt::QueuedConnection);
         return;
     }
 
@@ -392,7 +398,7 @@ void DigitalTwinMapWidget::removeMissingVisualItems(const QVector<DigitalTwinObj
 
     bool removedItem = false;
 
-    for (int index = demoItems_.size() - 1; index >= 0; --index) {
+    for (qsizetype index = demoItems_.size() - 1; index >= 0; --index) {
         if (!activeObjectIds.contains(demoItems_[index].object.objectId)) {
             removeVisualItemAt(index);
             removedItem = true;
@@ -408,7 +414,7 @@ void DigitalTwinMapWidget::removeMissingVisualItems(const QVector<DigitalTwinObj
  * @brief              지정한 visual item과 그 하위 scene item을 제거합니다.
  * @param visualIndex  제거할 visual item 인덱스
  */
-void DigitalTwinMapWidget::removeVisualItemAt(int visualIndex) {
+void DigitalTwinMapWidget::removeVisualItemAt(qsizetype visualIndex) {
     if (visualIndex < 0 || visualIndex >= demoItems_.size()) {
         return;
     }
@@ -427,7 +433,7 @@ void DigitalTwinMapWidget::removeVisualItemAt(int visualIndex) {
 void DigitalTwinMapWidget::rebuildVisualItemIndexes() {
     visualItemIndexes_.clear();
 
-    for (int index = 0; index < demoItems_.size(); ++index) {
+    for (qsizetype index = 0; index < demoItems_.size(); ++index) {
         visualItemIndexes_.insert(demoItems_[index].object.objectId, index);
     }
 }
@@ -459,7 +465,7 @@ QPainterPath DigitalTwinMapWidget::createTrailPath(const QVector<QPointF>& posit
 
     double accumulatedLength = 0.0;
 
-    for (int index = positions.size() - 1; index > 0; --index) {
+    for (qsizetype index = positions.size() - 1; index > 0; --index) {
         const QPointF currentPoint = positions[index];
         const QPointF previousPoint = positions[index - 1];
         const double segmentLength = distanceBetween(previousPoint, currentPoint);

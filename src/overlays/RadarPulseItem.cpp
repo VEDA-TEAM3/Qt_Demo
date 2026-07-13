@@ -22,9 +22,7 @@ constexpr int dangerAnimationDurationMsec = 1460;
  * @param value  제한 전 진행률
  * @return       제한된 진행률
  */
-qreal clampedProgress(qreal value) {
-    return std::clamp(value, static_cast<qreal>(0.0), static_cast<qreal>(1.0));
-}
+qreal clampedProgress(qreal value) { return std::clamp(value, static_cast<qreal>(0.0), static_cast<qreal>(1.0)); }
 }  // namespace
 
 /**
@@ -105,9 +103,7 @@ void RadarPulseItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
 /**
  * @brief   현재 애니메이션 진행률을 반환합니다.
  */
-qreal RadarPulseItem::progress() const {
-    return progress_;
-}
+qreal RadarPulseItem::progress() const { return progress_; }
 
 /**
  * @brief          애니메이션 진행률을 0.0~1.0 범위로 갱신합니다.
@@ -136,9 +132,7 @@ void RadarPulseItem::setElapsedMsec(int elapsedMsec) {
 /**
  * @brief   펄스 애니메이션이 끝났는지 확인합니다.
  */
-bool RadarPulseItem::isFinished() const {
-    return progress_ >= 1.0;
-}
+bool RadarPulseItem::isFinished() const { return progress_ >= 1.0; }
 
 /**
  * @brief   위험 단계에 맞는 펄스 색상을 반환합니다.
@@ -154,24 +148,18 @@ QColor RadarPulseItem::pulseColor() const {
 /**
  * @brief   위험 단계에 맞는 원 개수를 반환합니다.
  */
-int RadarPulseItem::ringCount() const {
-    return riskLevel_ == DigitalTwinRiskLevel::Danger ? 3 : 2;
-}
+int RadarPulseItem::ringCount() const { return riskLevel_ == DigitalTwinRiskLevel::Danger ? 3 : 2; }
 
 /**
  * @brief          지정한 원의 지연 시간을 반영한 개별 진행률을 계산합니다.
  * @param ringIndex  계산할 원 인덱스
  */
 qreal RadarPulseItem::ringPhase(int ringIndex) const {
-    const qreal totalDelay =
-        static_cast<qreal>(ringCount() - 1) * ringDelay;
+    const qreal totalDelay = static_cast<qreal>(ringCount() - 1) * ringDelay;
 
-    const qreal normalizedTime =
-        progress_ * (1.0 + totalDelay);
+    const qreal normalizedTime = progress_ * (1.0 + totalDelay);
 
-    return clampedProgress(
-        normalizedTime -
-        static_cast<qreal>(ringIndex) * ringDelay);
+    return clampedProgress(normalizedTime - static_cast<qreal>(ringIndex) * ringDelay);
 }
 
 /**

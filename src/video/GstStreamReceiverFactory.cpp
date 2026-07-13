@@ -1,6 +1,5 @@
-#include "video/StreamReceiverFactory.h"
-
 #include "video/GstRtspReceiver.h"
+#include "video/StreamReceiverFactory.h"
 
 /**
  * @brief                    GStreamer 기반 RTSP 수신기를 생성합니다.

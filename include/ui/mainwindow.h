@@ -4,11 +4,16 @@
 #include <QVector>
 #include <memory>
 
+#include "model/DigitalTwinTypes.h"
 #include "model/StreamConfig.h"
 
 class ClickableVideoWidget;
+class DigitalTwinObjectTableModel;
 class QShowEvent;
+class QStyledItemDelegate;
+class QTableView;
 class QThread;
+class QVBoxLayout;
 class StreamReceiver;
 class StreamReceiverFactory;
 class QWidget;
@@ -36,18 +41,20 @@ protected:
 
 private:
     void setupDashboardLayout();
+    void setupObjectListTable();
     void setupStreamConfigs();
     void setupReceivers();
     void startReceivers();
     void startReceiverSequentially(int receiverIndex);
     void setupVideoViewEvents();
+    void updateObjectListTable(QVector<DigitalTwinObject> objects);
     void toggleExpandVideo(QWidget* targetWidget);
     void expandVideo(QWidget* targetWidget);
     void restoreVideoGrid();
     void updateCameraSelectionLabel(QWidget* targetWidget);
 
 private:
-    std::shared_ptr<Ui::MainWindow> ui;
+    std::shared_ptr<Ui::MainWindow> ui_;
     std::shared_ptr<StreamReceiverFactory> streamReceiverFactory_;
 
     QVector<ReceiverWorker> receiverWorkers_;
@@ -55,5 +62,9 @@ private:
 
     QVector<QWidget*> videoWidgets_;
     QVector<StreamConfig> streamConfigs_;
+    std::shared_ptr<QVBoxLayout> objectListLayout_;
+    std::shared_ptr<DigitalTwinObjectTableModel> objectListModel_;
+    std::shared_ptr<QTableView> objectListTable_;
+    std::shared_ptr<QStyledItemDelegate> objectTypeDelegate_;
     QWidget* expandedWidget_ = nullptr;
 };

@@ -21,7 +21,7 @@ public:
 
 private:
     void updateAnimations();
-    void removePulseAt(int index);
+    void removePulseAt(qsizetype index);
 
     struct ActivePulseItem {
         std::shared_ptr<RadarPulseItem> item;

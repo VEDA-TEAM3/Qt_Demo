@@ -30,6 +30,9 @@ public:
     void startDemo();
     void stopDemo();
 
+signals:
+    void objectListUpdated(QVector<DigitalTwinObject> objects);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
@@ -51,7 +54,7 @@ private:
     void updateVisualItem(DemoVisualItem* visualItem);
     void updateMarkerPixmap(DemoVisualItem* visualItem);
     void removeMissingVisualItems(const QVector<DigitalTwinObject>& objects);
-    void removeVisualItemAt(int visualIndex);
+    void removeVisualItemAt(qsizetype visualIndex);
     void rebuildVisualItemIndexes();
     QPointF scenePointFromNormalized(const QPointF& normalizedPosition) const;
     QPainterPath createTrailPath(const QVector<QPointF>& positions) const;
@@ -62,8 +65,8 @@ private:
     OverlayManager overlayManager_;
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
-    DigitalTwinSimulationWorker* simulationWorker_ = nullptr;
+    std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;
     QVector<DemoVisualItem> demoItems_;
-    QHash<QString, int> visualItemIndexes_;
+    QHash<QString, qsizetype> visualItemIndexes_;
     QRectF mapRect_;
 };

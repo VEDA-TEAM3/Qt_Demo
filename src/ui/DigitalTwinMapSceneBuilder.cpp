@@ -14,7 +14,7 @@ constexpr double movementAreaLeft = 44.0;
 constexpr double movementAreaTop = 54.0;
 constexpr double movementAreaWidth = 912.0;
 constexpr double movementAreaHeight = 396.0;
-}
+}  // namespace
 
 /**
  * @brief        데모 주차장 맵의 고정 배경 요소를 scene에 구성합니다.

@@ -18,17 +18,13 @@ OverlayManager::OverlayManager() {
     animationTimer_.setInterval(overlayFrameIntervalMsec);
     animationTimer_.setTimerType(Qt::PreciseTimer);
 
-    QObject::connect(&animationTimer_, &QTimer::timeout, [this]() {
-        updateAnimations();
-    });
+    QObject::connect(&animationTimer_, &QTimer::timeout, [this]() { updateAnimations(); });
 }
 
 /**
  * @brief   남은 오버레이 아이템을 모두 제거합니다.
  */
-OverlayManager::~OverlayManager() {
-    clear();
-}
+OverlayManager::~OverlayManager() { clear(); }
 
 /**
  * @brief       오버레이를 표시할 scene을 지정합니다.
@@ -84,7 +80,7 @@ void OverlayManager::clear() {
  * @brief   진행 중인 펄스 애니메이션을 한 프레임만큼 갱신합니다.
  */
 void OverlayManager::updateAnimations() {
-    for (int index = activePulseItems_.size() - 1; index >= 0; --index) {
+    for (qsizetype index = activePulseItems_.size() - 1; index >= 0; --index) {
         auto& activePulseItem = activePulseItems_[index];
 
         if (!activePulseItem.item) {
@@ -109,7 +105,7 @@ void OverlayManager::updateAnimations() {
  * @brief       특정 펄스 아이템을 scene에서 분리한 뒤 삭제합니다.
  * @param index  제거할 active pulse 인덱스
  */
-void OverlayManager::removePulseAt(int index) {
+void OverlayManager::removePulseAt(qsizetype index) {
     if (index < 0 || index >= activePulseItems_.size()) {
         return;
     }

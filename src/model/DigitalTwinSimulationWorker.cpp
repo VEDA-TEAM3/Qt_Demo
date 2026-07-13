@@ -1,11 +1,11 @@
 #include "model/DigitalTwinSimulationWorker.h"
 
-#include "model/DigitalTwinObjectSpawner.h"
-#include "model/DigitalTwinRiskPolicy.h"
-
 #include <QRandomGenerator>
 #include <QtGlobal>
 #include <algorithm>
+
+#include "model/DigitalTwinObjectSpawner.h"
+#include "model/DigitalTwinRiskPolicy.h"
 
 namespace {
 constexpr int updateIntervalMsec = 100;
@@ -33,9 +33,7 @@ double randomRange(double minimumValue, double maximumValue) {
  * @param value  입력 값
  * @return       절댓값
  */
-double simulationAbsoluteValue(double value) {
-    return value < 0.0 ? -value : value;
-}
+double simulationAbsoluteValue(double value) { return value < 0.0 ? -value : value; }
 
 /**
  * @brief           속도 벡터의 최대 성분을 제한합니다.
@@ -58,9 +56,7 @@ QPointF limitedVelocity(const QPointF& velocity) {
  * @param value  입력 값
  * @return       0 이상이면 1.0, 음수이면 -1.0
  */
-double directionSign(double value) {
-    return value < 0.0 ? -1.0 : 1.0;
-}
+double directionSign(double value) { return value < 0.0 ? -1.0 : 1.0; }
 
 /**
  * @brief           위험 단계 비교를 위한 우선순위를 반환합니다.
@@ -189,6 +185,7 @@ void DigitalTwinSimulationWorker::start() {
 void DigitalTwinSimulationWorker::stop() {
     if (updateTimer_) {
         updateTimer_->stop();
+        updateTimer_.reset();
     }
 }
 
@@ -242,9 +239,8 @@ void DigitalTwinSimulationWorker::updateObjectMotion(DigitalTwinObject* object) 
 
     if (QRandomGenerator::global()->bounded(100) < 24) {
         const double horizontalDirection = directionSign(object->velocity.x());
-        const double horizontalSpeed = std::max(minimumHorizontalVelocity,
-                                                simulationAbsoluteValue(object->velocity.x()) +
-                                                    randomRange(-0.001, 0.001));
+        const double horizontalSpeed = std::max(
+            minimumHorizontalVelocity, simulationAbsoluteValue(object->velocity.x()) + randomRange(-0.001, 0.001));
         object->velocity = limitedVelocity(
             QPointF(horizontalDirection * horizontalSpeed, object->velocity.y() + randomRange(-0.002, 0.002)));
     }
@@ -263,7 +259,7 @@ void DigitalTwinSimulationWorker::updateObjectMotion(DigitalTwinObject* object) 
  * @brief   좌우 맵 바깥으로 완전히 이탈한 객체를 제거합니다.
  */
 void DigitalTwinSimulationWorker::removeExitedObjects() {
-    for (int index = objects_.size() - 1; index >= 0; --index) {
+    for (qsizetype index = objects_.size() - 1; index >= 0; --index) {
         const DigitalTwinObject& object = objects_[index];
         const double x = object.position.x();
         const double velocityX = object.velocity.x();
@@ -293,9 +289,7 @@ void DigitalTwinSimulationWorker::spawnObjectIfNeeded() {
 /**
  * @brief   다음 객체 생성을 10~15초 사이 무작위 지연으로 예약합니다.
  */
-void DigitalTwinSimulationWorker::scheduleNextSpawn() {
-    spawnCountdownMsec_ = objectSpawner_->nextSpawnDelayMsec();
-}
+void DigitalTwinSimulationWorker::scheduleNextSpawn() { spawnCountdownMsec_ = objectSpawner_->nextSpawnDelayMsec(); }
 
 /**
  * @brief   현재 객체 간 거리만 기준으로 위험 단계를 재계산하고 오버레이 이벤트를 발생시킵니다.
@@ -365,6 +359,4 @@ void DigitalTwinSimulationWorker::updateRiskLevels() {
 /**
  * @brief   최신 객체 상태 목록을 UI 스레드로 전달합니다.
  */
-void DigitalTwinSimulationWorker::emitCurrentObjects() {
-    emit objectsUpdated(objects_);
-}
+void DigitalTwinSimulationWorker::emitCurrentObjects() { emit objectsUpdated(objects_); }

@@ -27,7 +27,7 @@ inline void apply(QMainWindow* window, UiMainWindow* ui) {
     ui->topSectionFrame->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->topSectionFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    ui->bottomSectionFrame->setFixedHeight(300);
+    ui->bottomSectionFrame->setFixedHeight(240);
     ui->bottomSectionFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
     ui->cctvCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -79,4 +79,4 @@ inline void apply(QMainWindow* window, UiMainWindow* ui) {
     ui->videoGridLayout->setColumnStretch(0, 1);
     ui->videoGridLayout->setColumnStretch(1, 1);
 }
-}
+}  // namespace DashboardLayout

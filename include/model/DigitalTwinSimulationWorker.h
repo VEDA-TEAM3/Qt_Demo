@@ -1,7 +1,7 @@
 #pragma once
 
-#include <QObject>
 #include <QHash>
+#include <QObject>
 #include <QTimer>
 #include <QVector>
 #include <memory>

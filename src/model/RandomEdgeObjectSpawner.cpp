@@ -1,11 +1,11 @@
-#include "model/DigitalTwinObjectSpawner.h"
-
 #include <QRandomGenerator>
 #include <QString>
 
+#include "model/DigitalTwinObjectSpawner.h"
+
 namespace {
-constexpr int minimumSpawnDelayMsec = 3000;
-constexpr int maximumSpawnDelayMsec = 6000;
+constexpr int minimumSpawnDelayMsec = 2000;
+constexpr int maximumSpawnDelayMsec = 5000;
 constexpr double initialMinX = 0.14;
 constexpr double initialMaxX = 0.86;
 constexpr double spawnerObjectMinY = 0.14;
@@ -77,7 +77,7 @@ QString idPrefixForObjectType(DigitalTwinObjectType objectType) {
 
     return QStringLiteral("O");
 }
-}
+}  // namespace
 
 /**
  * @brief              시작 시 맵 내부에 배치할 데모 객체를 생성합니다.
@@ -155,8 +155,8 @@ DigitalTwinObject RandomEdgeObjectSpawner::createObject(DigitalTwinObjectType ob
  * @return            화면 표시와 pair key에 사용할 객체 ID
  */
 QString RandomEdgeObjectSpawner::nextObjectId(DigitalTwinObjectType objectType) {
-    const QString objectId = QStringLiteral("%1-%2").arg(idPrefixForObjectType(objectType)).arg(nextSequence_, 3, 10,
-                                                                                                QLatin1Char('0'));
+    const QString objectId =
+        QStringLiteral("%1-%2").arg(idPrefixForObjectType(objectType)).arg(nextSequence_, 3, 10, QLatin1Char('0'));
     ++nextSequence_;
 
     return objectId;

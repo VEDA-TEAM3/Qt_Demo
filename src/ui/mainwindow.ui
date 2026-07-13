@@ -555,7 +555,7 @@
          <item>
           <widget class="QLabel" name="safeLabel">
            <property name="text">
-            <string>● 정상 </string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;● 정상 &lt;span style=&quot;color:#b9c8da;&quot;&gt;: 안전 상태&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
           </widget>
          </item>
@@ -569,7 +569,7 @@
          <item>
           <widget class="QLabel" name="warnLabel">
            <property name="text">
-            <string>● 주의 </string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;● 주의 &lt;span style=&quot;color:#b9c8da;&quot;&gt;: 유의 필요&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
           </widget>
          </item>
@@ -583,7 +583,7 @@
          <item>
           <widget class="QLabel" name="dangerLabel">
            <property name="text">
-            <string>● 위험 </string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;● 위험 &lt;span style=&quot;color:#b9c8da;&quot;&gt;: 즉시 대응 필요&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
           </widget>
          </item>

@@ -584,10 +584,9 @@ void GstRtspReceiver::checkStall() {
 
     if (!gotAnyPacket_.load(std::memory_order_relaxed)) {
         if (startupElapsedMsec > initialPacketTimeoutMsec) {
-            const QString reason =
-                videoPadLinked_
-                    ? QString("no RTP packet for %1 ms after H264 pad link").arg(startupElapsedMsec)
-                    : QString("no H264 video pad/RTP packet for %1 ms").arg(startupElapsedMsec);
+            const QString reason = videoPadLinked_
+                                       ? QString("no RTP packet for %1 ms after H264 pad link").arg(startupElapsedMsec)
+                                       : QString("no H264 video pad/RTP packet for %1 ms").arg(startupElapsedMsec);
 
             restartPipeline(reason);
         }
@@ -600,8 +599,8 @@ void GstRtspReceiver::checkStall() {
         const gint64 elapsedSincePacketMsec = (g_get_monotonic_time() - lastPacketTime) / 1000;
 
         if (elapsedSincePacketMsec > initialFrameTimeoutMsec) {
-            const QString reason = QString("no decoded frame for %1 ms after first RTP packet")
-                                       .arg(elapsedSincePacketMsec);
+            const QString reason =
+                QString("no decoded frame for %1 ms after first RTP packet").arg(elapsedSincePacketMsec);
 
             restartPipeline(reason);
         }
@@ -714,8 +713,8 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
     GstElement* videoChain = gst_bin_get_by_name(GST_BIN(receiver->pipeline_), "videochain");
 
     if (!videoChain) {
-        QMetaObject::invokeMethod(receiver, [receiver]() { receiver->errorOccurred("videochain not found"); },
-                                  Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            receiver, [receiver]() { receiver->errorOccurred("videochain not found"); }, Qt::QueuedConnection);
         return;
     }
 
@@ -723,8 +722,8 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
 
     if (!chainSinkPad) {
         gst_object_unref(videoChain);
-        QMetaObject::invokeMethod(receiver, [receiver]() { receiver->errorOccurred("videochain sink pad not found"); },
-                                  Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            receiver, [receiver]() { receiver->errorOccurred("videochain sink pad not found"); }, Qt::QueuedConnection);
         return;
     }
 
@@ -739,13 +738,13 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
 
     if (GST_PAD_LINK_SUCCESSFUL(linkResult)) {
         receiver->videoPadLinked_ = true;
-        QMetaObject::invokeMethod(receiver,
-                                  [receiver]() { receiver->statusChanged(QStringLiteral("H264 video pad linked")); },
-                                  Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            receiver, [receiver]() { receiver->statusChanged(QStringLiteral("H264 video pad linked")); },
+            Qt::QueuedConnection);
     } else {
         const QString errorText = QString("Failed to link H264 video pad: %1").arg(gst_pad_link_get_name(linkResult));
-        QMetaObject::invokeMethod(receiver, [receiver, errorText]() { receiver->errorOccurred(errorText); },
-                                  Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            receiver, [receiver, errorText]() { receiver->errorOccurred(errorText); }, Qt::QueuedConnection);
     }
 
     gst_object_unref(chainSinkPad);
@@ -835,10 +834,10 @@ void GstRtspReceiver::pollBus() {
 
     GstMessage* msg = nullptr;
 
-    while ((msg = gst_bus_pop_filtered(
-                bus, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS | GST_MESSAGE_STATE_CHANGED |
-                                                 GST_MESSAGE_ASYNC_DONE | GST_MESSAGE_LATENCY |
-                                                 GST_MESSAGE_ELEMENT))) != nullptr) {
+    while ((msg = gst_bus_pop_filtered(bus, static_cast<GstMessageType>(
+                                                GST_MESSAGE_ERROR | GST_MESSAGE_EOS | GST_MESSAGE_STATE_CHANGED |
+                                                GST_MESSAGE_ASYNC_DONE | GST_MESSAGE_LATENCY | GST_MESSAGE_ELEMENT))) !=
+           nullptr) {
         switch (GST_MESSAGE_TYPE(msg)) {
             case GST_MESSAGE_ERROR: {
                 GError* err = nullptr;

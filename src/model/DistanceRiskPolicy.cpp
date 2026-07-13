@@ -1,6 +1,6 @@
-#include "model/DigitalTwinRiskPolicy.h"
-
 #include <cmath>
+
+#include "model/DigitalTwinRiskPolicy.h"
 
 namespace {
 constexpr double dangerDistanceThreshold = 0.08;
@@ -16,7 +16,7 @@ bool isPedestrianPair(const DigitalTwinObject& firstObject, const DigitalTwinObj
     return firstObject.type == DigitalTwinObjectType::Pedestrian &&
            secondObject.type == DigitalTwinObjectType::Pedestrian;
 }
-}
+}  // namespace
 
 /**
  * @brief               두 객체 사이의 유클리드 거리를 기준으로 위험 단계를 계산합니다.

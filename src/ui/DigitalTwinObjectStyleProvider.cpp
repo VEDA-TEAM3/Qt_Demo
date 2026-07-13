@@ -93,7 +93,7 @@ QColor fallbackColorForObject(const DigitalTwinObject& object) {
 
     return object.color;
 }
-}
+}  // namespace
 
 /**
  * @brief         객체 타입과 위험 단계에 맞는 아이콘/색상 스타일을 제공합니다.

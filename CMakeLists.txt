@@ -35,6 +35,8 @@ qt_add_executable(Qtcctvclient
     src/ui/DigitalTwinMapSceneBuilder.cpp
     include/ui/DigitalTwinObjectStyleProvider.h
     src/ui/DigitalTwinObjectStyleProvider.cpp
+    include/ui/DigitalTwinObjectTableModel.h
+    src/ui/DigitalTwinObjectTableModel.cpp
 
     include/overlays/RadarPulseItem.h
     src/overlays/RadarPulseItem.cpp
@@ -74,20 +76,25 @@ qt_add_resources(Qtcctvclient "icon_resources"
     FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_warning.png"
 )
 
 target_include_directories(Qtcctvclient PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
 
+target_include_directories(Qtcctvclient SYSTEM PRIVATE
     "${GSTREAMER_ROOT}/include/gstreamer-1.0"
     "${GSTREAMER_ROOT}/include/glib-2.0"
     "${GSTREAMER_ROOT}/lib/glib-2.0/include"
@@ -105,6 +112,7 @@ if(QTCCTV_ENABLE_PCH)
         <memory>
 
         <QApplication>
+        <QAbstractTableModel>
         <QBrush>
         <QColor>
         <QDebug>
@@ -123,8 +131,10 @@ if(QTCCTV_ENABLE_PCH)
         <QPointF>
         <QRectF>
         <QShowEvent>
+        <QSize>
         <QSizePolicy>
         <QString>
+        <QTableView>
         <QThread>
         <QTimer>
         <QVector>
