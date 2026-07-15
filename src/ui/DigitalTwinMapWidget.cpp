@@ -1,5 +1,6 @@
 #include "ui/DigitalTwinMapWidget.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QFrame>
 #include <QGraphicsPathItem>
@@ -12,6 +13,7 @@
 #include <QPainterPath>
 #include <QPen>
 #include <QPixmap>
+#include <QProcessEnvironment>
 #include <QResizeEvent>
 #include <QSet>
 #include <QSize>
@@ -30,6 +32,42 @@ namespace {
 constexpr int maxTrailPointCount = 96;
 constexpr double maxTrailSceneLength = 240.0;
 constexpr double movingIconRotationOffsetDegrees = 90.0;
+constexpr int liveFrameExpiryMsec = 5000;
+constexpr int liveFrameExpiryPollMsec = 1000;
+
+bool configuredWorldBounds(QRectF& bounds) {
+    const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    bool minXOk = false;
+    bool minYOk = false;
+    bool maxXOk = false;
+    bool maxYOk = false;
+    const double minX = environment.value(QStringLiteral("VEDA_MAP_MIN_X")).toDouble(&minXOk);
+    const double minY = environment.value(QStringLiteral("VEDA_MAP_MIN_Y")).toDouble(&minYOk);
+    const double maxX = environment.value(QStringLiteral("VEDA_MAP_MAX_X")).toDouble(&maxXOk);
+    const double maxY = environment.value(QStringLiteral("VEDA_MAP_MAX_Y")).toDouble(&maxYOk);
+
+    if (!minXOk || !minYOk || !maxXOk || !maxYOk || maxX <= minX || maxY <= minY) {
+        return false;
+    }
+
+    bounds = QRectF(minX, minY, maxX - minX, maxY - minY);
+    return true;
+}
+
+QString centralEventKey(const CentralEventData& event) {
+    const QString identity = event.eventId.isEmpty() ? event.eventType : event.eventId;
+    return QStringLiteral("%1:%2").arg(event.channelIndex).arg(identity);
+}
+
+DigitalTwinRiskLevel riskLevelForSeverity(int severity) {
+    if (severity >= 3) {
+        return DigitalTwinRiskLevel::Danger;
+    }
+    if (severity > 0) {
+        return DigitalTwinRiskLevel::Warning;
+    }
+    return DigitalTwinRiskLevel::Normal;
+}
 
 /**
  * @brief        실수 값의 절댓값을 반환합니다.
@@ -165,6 +203,11 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     qRegisterMetaType<DigitalTwinSnapshot>("DigitalTwinSnapshot");
     qRegisterMetaType<QVector<DigitalTwinObject>>("QVector<DigitalTwinObject>");
 
+    hasConfiguredWorldBounds_ = configuredWorldBounds(configuredWorldBounds_);
+    liveFrameExpiryTimer_.setInterval(liveFrameExpiryPollMsec);
+    liveFrameExpiryTimer_.setTimerType(Qt::CoarseTimer);
+    connect(&liveFrameExpiryTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::expireStaleLiveFrames);
+
     setObjectName(QStringLiteral("digitalTwinMapWidget"));
     setScene(&scene_);
     scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
@@ -234,6 +277,172 @@ void DigitalTwinMapWidget::stopDemo() {
                               Qt::BlockingQueuedConnection);
 }
 
+void DigitalTwinMapWidget::applyTopViewFrame(TopViewFrameData frame) {
+    if (frame.channelIndex < 0 || frame.channelIndex >= 4 || frame.sourceTimestamp <= 0) {
+        qWarning() << "[DigitalTwinMapWidget] Invalid TopView frame" << frame.channelIndex
+                   << frame.sourceTimestamp;
+        return;
+    }
+
+    if (frame.sourceTimestamp <= liveFrameSourceTimes_.value(frame.channelIndex, 0)) {
+        return;
+    }
+
+    if (!liveMode_) {
+        stopDemo();
+        liveMode_ = true;
+        previousLivePositions_.clear();
+        liveFrameExpiryTimer_.start();
+    }
+
+    liveFrameSourceTimes_.insert(frame.channelIndex, frame.sourceTimestamp);
+    liveFrameArrivalTimes_.insert(frame.channelIndex, QDateTime::currentMSecsSinceEpoch());
+    liveFrames_.insert(frame.channelIndex, std::move(frame));
+    rebuildLiveSnapshot();
+}
+
+void DigitalTwinMapWidget::applyCentralEvent(CentralEventData event) {
+    if (event.channelIndex < 0 || event.channelIndex >= 4) {
+        return;
+    }
+
+    const QString key = centralEventKey(event);
+    if (event.active) {
+        activeCentralEvents_.insert(key, std::move(event));
+    } else {
+        activeCentralEvents_.remove(key);
+    }
+
+    if (liveMode_) {
+        rebuildLiveSnapshot();
+    } else if (dangerAlertOverlay_) {
+        dangerAlertOverlay_->setActive(hasActiveCentralDanger());
+    }
+}
+
+void DigitalTwinMapWidget::rebuildLiveSnapshot() {
+    QVector<QPointF> observedPositions;
+    for (auto frameIterator = liveFrames_.cbegin(); frameIterator != liveFrames_.cend(); ++frameIterator) {
+        for (const TopViewObjectData& object : frameIterator.value().objects) {
+            observedPositions.append(object.worldPosition);
+        }
+    }
+
+    if (!hasConfiguredWorldBounds_ && !observedPositions.isEmpty()) {
+        double minX = observedPositions.first().x();
+        double maxX = minX;
+        double minY = observedPositions.first().y();
+        double maxY = minY;
+        bool normalizedCoordinates = true;
+
+        for (const QPointF& position : observedPositions) {
+            minX = qMin(minX, position.x());
+            maxX = qMax(maxX, position.x());
+            minY = qMin(minY, position.y());
+            maxY = qMax(maxY, position.y());
+            normalizedCoordinates = normalizedCoordinates && position.x() >= 0.0 && position.x() <= 1.0 &&
+                                    position.y() >= 0.0 && position.y() <= 1.0;
+        }
+
+        QRectF observedBounds;
+        if (normalizedCoordinates) {
+            observedBounds = QRectF(0.0, 0.0, 1.0, 1.0);
+        } else {
+            const double width = qMax(1.0, maxX - minX);
+            const double height = qMax(1.0, maxY - minY);
+            const double horizontalMargin = width * 0.08;
+            const double verticalMargin = height * 0.08;
+            observedBounds = QRectF(minX - horizontalMargin, minY - verticalMargin,
+                                    width + horizontalMargin * 2.0, height + verticalMargin * 2.0);
+        }
+
+        if (!hasAutomaticWorldBounds_) {
+            automaticWorldBounds_ = observedBounds;
+            hasAutomaticWorldBounds_ = true;
+        } else {
+            automaticWorldBounds_ = automaticWorldBounds_.united(observedBounds);
+        }
+    }
+
+    DigitalTwinSnapshot snapshot;
+    QHash<QString, QPointF> currentPositions;
+
+    for (auto frameIterator = liveFrames_.cbegin(); frameIterator != liveFrames_.cend(); ++frameIterator) {
+        const int channelIndex = frameIterator.key();
+        const DigitalTwinRiskLevel riskLevel = riskLevelForSeverity(activeSeverityForChannel(channelIndex));
+
+        for (const TopViewObjectData& sourceObject : frameIterator.value().objects) {
+            DigitalTwinObject object;
+            object.objectId = QStringLiteral("CH%1-%2").arg(channelIndex + 1).arg(sourceObject.id);
+            object.type = sourceObject.objectClass == QStringLiteral("Human")
+                              ? DigitalTwinObjectType::Pedestrian
+                              : DigitalTwinObjectType::Vehicle;
+            object.position = normalizedWorldPosition(sourceObject.worldPosition);
+            object.velocity = object.position - previousLivePositions_.value(object.objectId, object.position);
+            object.riskLevel = riskLevel;
+            snapshot.objects.append(object);
+            currentPositions.insert(object.objectId, object.position);
+        }
+    }
+
+    previousLivePositions_ = std::move(currentPositions);
+    applySimulationSnapshot(snapshot);
+
+    if (dangerAlertOverlay_) {
+        dangerAlertOverlay_->setActive(hasActiveCentralDanger() || hasActiveDanger(snapshot));
+    }
+}
+
+QPointF DigitalTwinMapWidget::normalizedWorldPosition(const QPointF& worldPosition) const {
+    const QRectF bounds = hasConfiguredWorldBounds_ ? configuredWorldBounds_ : automaticWorldBounds_;
+    if (bounds.width() <= 0.0 || bounds.height() <= 0.0) {
+        return QPointF(0.5, 0.5);
+    }
+
+    return QPointF(qBound(0.0, (worldPosition.x() - bounds.left()) / bounds.width(), 1.0),
+                   qBound(0.0, (worldPosition.y() - bounds.top()) / bounds.height(), 1.0));
+}
+
+int DigitalTwinMapWidget::activeSeverityForChannel(int channelIndex) const {
+    int severity = 0;
+    for (auto iterator = activeCentralEvents_.cbegin(); iterator != activeCentralEvents_.cend(); ++iterator) {
+        if (iterator.value().channelIndex == channelIndex) {
+            severity = qMax(severity, iterator.value().severity);
+        }
+    }
+    return severity;
+}
+
+bool DigitalTwinMapWidget::hasActiveCentralDanger() const {
+    for (auto iterator = activeCentralEvents_.cbegin(); iterator != activeCentralEvents_.cend(); ++iterator) {
+        if (iterator.value().severity >= 3) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void DigitalTwinMapWidget::expireStaleLiveFrames() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    bool changed = false;
+
+    for (auto iterator = liveFrameArrivalTimes_.begin(); iterator != liveFrameArrivalTimes_.end();) {
+        if (now - iterator.value() <= liveFrameExpiryMsec) {
+            ++iterator;
+            continue;
+        }
+
+        const int channelIndex = iterator.key();
+        iterator = liveFrameArrivalTimes_.erase(iterator);
+        liveFrames_.remove(channelIndex);
+        changed = true;
+    }
+
+    if (changed) {
+        rebuildLiveSnapshot();
+    }
+}
+
 /**
  * @brief       위젯 크기 변경 시 scene 전체가 보이도록 뷰를 다시 맞춥니다.
  * @param event  Qt resize 이벤트
@@ -289,7 +498,7 @@ void DigitalTwinMapWidget::setupSimulationWorker() {
  */
 void DigitalTwinMapWidget::applySimulationSnapshot(const DigitalTwinSnapshot& snapshot) {
     if (dangerAlertOverlay_) {
-        dangerAlertOverlay_->setActive(hasActiveDanger(snapshot));
+        dangerAlertOverlay_->setActive(hasActiveCentralDanger() || hasActiveDanger(snapshot));
     }
 
     applyObjectUpdates(snapshot.objects);

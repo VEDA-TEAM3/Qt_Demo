@@ -5,10 +5,12 @@
 #include <QHash>
 #include <QRectF>
 #include <QThread>
+#include <QTimer>
 #include <QVector>
 #include <memory>
 
 #include "model/DigitalTwinTypes.h"
+#include "model/MqttRealtimeData.h"
 #include "overlays/OverlayManager.h"
 
 class DigitalTwinSimulationWorker;
@@ -31,6 +33,10 @@ public:
     void startDemo();
     void stopDemo();
 
+public slots:
+    void applyTopViewFrame(TopViewFrameData frame);
+    void applyCentralEvent(CentralEventData event);
+
 signals:
     void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
 
@@ -52,6 +58,11 @@ private:
     void applySimulationSnapshot(const DigitalTwinSnapshot& snapshot);
     void applyObjectUpdates(const QVector<DigitalTwinObject>& objects);
     void showRiskPulse(const DigitalTwinRiskEvent& event);
+    void rebuildLiveSnapshot();
+    QPointF normalizedWorldPosition(const QPointF& worldPosition) const;
+    int activeSeverityForChannel(int channelIndex) const;
+    bool hasActiveCentralDanger() const;
+    void expireStaleLiveFrames();
     void createVisualItem(const DigitalTwinObject& object);
     void updateVisualItem(DemoVisualItem* visualItem);
     void updateMarkerPixmap(DemoVisualItem* visualItem);
@@ -71,5 +82,16 @@ private:
     std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;
     QVector<DemoVisualItem> demoItems_;
     QHash<QString, qsizetype> visualItemIndexes_;
+    QHash<int, TopViewFrameData> liveFrames_;
+    QHash<int, qint64> liveFrameArrivalTimes_;
+    QHash<int, qint64> liveFrameSourceTimes_;
+    QHash<QString, CentralEventData> activeCentralEvents_;
+    QHash<QString, QPointF> previousLivePositions_;
+    QTimer liveFrameExpiryTimer_;
     QRectF mapRect_;
+    QRectF configuredWorldBounds_;
+    QRectF automaticWorldBounds_;
+    bool hasConfiguredWorldBounds_ = false;
+    bool hasAutomaticWorldBounds_ = false;
+    bool liveMode_ = false;
 };

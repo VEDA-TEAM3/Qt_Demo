@@ -1,5 +1,6 @@
 #include "ui/panels/DashboardPanelCoordinator.h"
 
+#include <QDateTime>
 #include <utility>
 
 #include "network/DeviceStatusService.h"
@@ -61,6 +62,37 @@ void DashboardPanelCoordinator::consumeDigitalTwinSnapshot(DigitalTwinSnapshot s
     if (!objectListFlushTimer_.isActive()) {
         objectListFlushTimer_.start();
     }
+}
+
+void DashboardPanelCoordinator::consumeCentralEvent(CentralEventData event) {
+    if (!eventLogPanel_ || event.channelIndex < 0 || event.channelIndex >= 4 || event.sourceTimestamp <= 0) {
+        return;
+    }
+
+    const QString identity = event.eventId.isEmpty() ? event.eventType : event.eventId;
+    const QString key = QStringLiteral("%1:%2").arg(event.channelIndex).arg(identity);
+    if (event.sourceTimestamp <= latestCentralEventTimestamps_.value(key, 0)) {
+        return;
+    }
+    latestCentralEventTimestamps_.insert(key, event.sourceTimestamp);
+
+    EventLogEntry entry;
+    entry.time = QDateTime::fromMSecsSinceEpoch(event.sourceTimestamp).time();
+    entry.area = QStringLiteral("CH-%1").arg(event.channelIndex + 1, 2, 10, QLatin1Char('0'));
+    entry.objectText = event.eventType;
+
+    if (event.active && event.severity >= 3) {
+        entry.riskLevel = EventLogRiskLevel::Danger;
+        entry.action = EventLogAction::DangerAlertActivated;
+    } else if (event.active && event.severity > 0) {
+        entry.riskLevel = EventLogRiskLevel::Warning;
+        entry.action = EventLogAction::WarningAlertActivated;
+    } else {
+        entry.riskLevel = EventLogRiskLevel::Normal;
+        entry.action = EventLogAction::None;
+    }
+
+    eventLogPanel_->prependEntry(entry);
 }
 
 /**

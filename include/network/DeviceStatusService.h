@@ -11,6 +11,7 @@
 
 #include "model/DeviceStatus.h"
 #include "model/DeviceStatusReport.h"
+#include "model/MqttRealtimeData.h"
 
 class DeviceStatusGateway;
 class DeviceStatusGatewayFactory;
@@ -28,6 +29,8 @@ public:
 
 signals:
     void channelStatusesReceived(QVector<DeviceChannelStatus> statuses);
+    void topViewFrameReceived(TopViewFrameData frame);
+    void centralEventReceived(CentralEventData event);
     void brokerConnectionChanged(bool connected);
     void controllerOnlineChanged(bool online, QString node);
     void feedbackFailed(int channelIndex, QString detail);
@@ -39,6 +42,7 @@ private:
     void handleReport(DeviceStatusReport report);
     void handleSensorHealth(const DeviceStatusReport& report, SensorHealth health);
     void handleConfirmedFeedback(const DeviceStatusReport& report);
+    void handleAcknowledgedFeedback(const DeviceStatusReport& report);
     void handleFailedFeedback(const DeviceStatusReport& report);
     void queueChannelStatus(DeviceChannelStatus status);
     void scheduleUiFlush();

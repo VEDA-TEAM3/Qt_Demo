@@ -1,11 +1,13 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include <QTimer>
 #include <QVector>
 
 #include "model/DigitalTwinTypes.h"
 #include "model/EventLogGenerator.h"
+#include "model/MqttRealtimeData.h"
 
 class DeviceStatusPanel;
 class DeviceStatusService;
@@ -23,6 +25,7 @@ public:
 
 public slots:
     void consumeDigitalTwinSnapshot(DigitalTwinSnapshot snapshot);
+    void consumeCentralEvent(CentralEventData event);
 
 private:
     void flushObjectList();
@@ -31,6 +34,7 @@ private:
     EventLogPanel* eventLogPanel_ = nullptr;
     ObjectListPanel* objectListPanel_ = nullptr;
     EventLogGenerator eventLogGenerator_;
+    QHash<QString, qint64> latestCentralEventTimestamps_;
     QVector<DigitalTwinObject> pendingObjects_;
     QTimer objectListFlushTimer_;
     bool hasPendingObjects_ = false;

@@ -68,6 +68,7 @@ qt_add_executable(Qtcctvclient
     include/model/DigitalTwinTypes.h
     include/model/DeviceStatus.h
     include/model/DeviceStatusReport.h
+    include/model/MqttRealtimeData.h
     include/model/DigitalTwinObjectSpawner.h
     src/model/RandomEdgeObjectSpawner.cpp
     include/model/DigitalTwinRiskPolicy.h

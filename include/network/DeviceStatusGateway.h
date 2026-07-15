@@ -3,6 +3,7 @@
 #include <QObject>
 
 #include "model/DeviceStatusReport.h"
+#include "model/MqttRealtimeData.h"
 
 class DeviceStatusGateway : public QObject {
     Q_OBJECT
@@ -16,5 +17,7 @@ public:
 
 signals:
     void reportReceived(DeviceStatusReport report);
+    void topViewFrameReceived(TopViewFrameData frame);
+    void centralEventReceived(CentralEventData event);
     void brokerConnectionChanged(bool connected);
 };

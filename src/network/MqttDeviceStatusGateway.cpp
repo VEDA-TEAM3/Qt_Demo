@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcessEnvironment>
@@ -13,13 +14,18 @@
 #include <QUuid>
 #include <QtMqtt/QMqttClient>
 #include <QtMqtt/QMqttTopicName>
+#include <cmath>
 #include <utility>
 
 namespace {
 constexpr auto controllerStatusTopic = "veda/hw/+/status";
 constexpr auto centralStatusTopic = "veda/hw/status";
 constexpr auto sensorAliveTopic = "veda/ch/+/alive";
+constexpr auto directTopViewTopic = "veda/ch/+/topview";
+constexpr auto relayedTopViewTopic = "veda/qt/ch/+/topview";
+constexpr auto centralEventTopic = "veda/qt/event";
 constexpr int statusQos = 1;
+constexpr int topViewQos = 0;
 constexpr int reconnectIntervalMsec = 3000;
 constexpr int deviceChannelCount = 4;
 constexpr int protocolVersion = 1;
@@ -72,12 +78,17 @@ bool parseOutputState(const QJsonObject& object, DeviceOutputState& outputs, QSt
     return true;
 }
 
-int channelIndexForStatus(qint64 channelId, StatusProtocol protocol) {
-    if (protocol == StatusProtocol::Controller) {
-        return channelId >= 1 && channelId <= deviceChannelCount ? static_cast<int>(channelId - 1) : -1;
-    }
+int channelIndexForStatus(qint64 channelId) {
+    // Both the per-node controller and the fixed central server use wire IDs 1..4.
+    return channelId >= 1 && channelId <= deviceChannelCount ? static_cast<int>(channelId - 1) : -1;
+}
 
-    return channelId >= 0 && channelId < deviceChannelCount ? static_cast<int>(channelId) : -1;
+int channelIndexFromControllerTopic(const QString& topic) {
+    static const QRegularExpression topicPattern(
+        QStringLiteral("^veda/hw/(?:rpi|ch|channel)?([1-4])/status$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = topicPattern.match(topic);
+    return match.hasMatch() ? match.captured(1).toInt() - 1 : -1;
 }
 
 bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusProtocol protocol,
@@ -119,19 +130,24 @@ bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusP
         }
     }
 
-    qint64 channelId = 0;
-    if (!readInteger(object, QStringLiteral("channelId"), channelId)) {
-        error = QStringLiteral("Missing integer channelId field on %1").arg(topic);
-        return false;
+    if (object.contains(QStringLiteral("channelId"))) {
+        qint64 channelId = 0;
+        if (!readInteger(object, QStringLiteral("channelId"), channelId)) {
+            error = QStringLiteral("Invalid integer channelId field on %1").arg(topic);
+            return false;
+        }
+        report.channelIndex = channelIndexForStatus(channelId);
+    } else if (protocol == StatusProtocol::Controller) {
+        report.channelIndex = channelIndexFromControllerTopic(topic);
     }
 
-    report.channelIndex = channelIndexForStatus(channelId, protocol);
     if (report.channelIndex < 0) {
-        error = QStringLiteral("channelId out of range on %1").arg(topic);
+        error = QStringLiteral("Missing or out-of-range channelId on %1").arg(topic);
         return false;
     }
 
-    if (report.detail == QStringLiteral("rpi_controller_online")) {
+    if (report.detail == QStringLiteral("rpi_controller_online") ||
+        report.detail == QStringLiteral("controller_online")) {
         report.type = DeviceStatusReportType::ControllerOnline;
         return true;
     }
@@ -166,6 +182,10 @@ bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusP
 
     const QJsonValue stateValue = object.value(QStringLiteral("state"));
     if (!stateValue.isObject()) {
+        if (protocol == StatusProtocol::Controller) {
+            report.type = DeviceStatusReportType::FeedbackAcknowledged;
+            return true;
+        }
         error = QStringLiteral("Missing object state field on %1").arg(topic);
         return false;
     }
@@ -201,13 +221,166 @@ bool parseAlivePayload(const QByteArray& payload, const QString& topic, DeviceSt
     report.detail = state == "1" ? QStringLiteral("sensor_alive") : QStringLiteral("sensor_lwt_offline");
     return true;
 }
+
+bool readFiniteNumber(const QJsonObject& object, const QString& name, double& value) {
+    const QJsonValue jsonValue = object.value(name);
+    if (!jsonValue.isDouble() || !std::isfinite(jsonValue.toDouble())) {
+        return false;
+    }
+
+    value = jsonValue.toDouble();
+    return true;
+}
+
+bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopViewFrameData& frame, QString& error) {
+    static const QRegularExpression topicPattern(
+        QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
+    const QRegularExpressionMatch match = topicPattern.match(topic);
+    if (!match.hasMatch()) {
+        error = QStringLiteral("Invalid TopView topic: %1").arg(topic);
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        error = QStringLiteral("Invalid TopView JSON on %1: %2").arg(topic, parseError.errorString());
+        return false;
+    }
+
+    const QJsonObject object = document.object();
+    qint64 version = 0;
+    qint64 timestamp = 0;
+    qint64 payloadChannel = 0;
+    if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
+        !readInteger(object, QStringLiteral("ts"), timestamp) || timestamp <= 0 ||
+        !readInteger(object, QStringLiteral("ch"), payloadChannel)) {
+        error = QStringLiteral("Invalid v, ts or ch field on %1").arg(topic);
+        return false;
+    }
+
+    const int topicChannel = match.captured(1).toInt();
+    if (payloadChannel != topicChannel) {
+        error = QStringLiteral("TopView topic/payload channel mismatch on %1").arg(topic);
+        return false;
+    }
+
+    const QJsonValue objectsValue = object.value(QStringLiteral("objects"));
+    if (!objectsValue.isArray()) {
+        error = QStringLiteral("Missing objects array on %1").arg(topic);
+        return false;
+    }
+
+    frame.channelIndex = topicChannel;
+    frame.sourceTimestamp = timestamp;
+    const QJsonArray objects = objectsValue.toArray();
+    frame.objects.reserve(objects.size());
+
+    for (const QJsonValue& objectValue : objects) {
+        if (!objectValue.isObject()) {
+            error = QStringLiteral("TopView objects must be JSON objects on %1").arg(topic);
+            return false;
+        }
+
+        const QJsonObject sourceObject = objectValue.toObject();
+        const QJsonValue classValue = sourceObject.value(QStringLiteral("cls"));
+        const QJsonValue positionValue = sourceObject.value(QStringLiteral("pos"));
+        qint64 objectId = 0;
+        double confidence = 0.0;
+        bool edge = false;
+
+        if (!readInteger(sourceObject, QStringLiteral("id"), objectId) || !classValue.isString() ||
+            !positionValue.isObject() || !readFiniteNumber(sourceObject, QStringLiteral("conf"), confidence) ||
+            confidence < 0.0 || confidence > 1.0 || !readBoolean(sourceObject, QStringLiteral("edge"), edge)) {
+            error = QStringLiteral("Invalid TopView object fields on %1").arg(topic);
+            return false;
+        }
+
+        const QString objectClass = classValue.toString();
+        if (objectClass != QStringLiteral("Human") && objectClass != QStringLiteral("Vehicle")) {
+            error = QStringLiteral("Unsupported TopView class on %1: %2").arg(topic, objectClass);
+            return false;
+        }
+
+        const QJsonObject position = positionValue.toObject();
+        double x = 0.0;
+        double y = 0.0;
+        if (!readFiniteNumber(position, QStringLiteral("x"), x) ||
+            !readFiniteNumber(position, QStringLiteral("y"), y)) {
+            error = QStringLiteral("Invalid TopView world position on %1").arg(topic);
+            return false;
+        }
+
+        TopViewObjectData parsedObject;
+        parsedObject.id = objectId;
+        parsedObject.objectClass = objectClass;
+        parsedObject.worldPosition = QPointF(x, y);
+        parsedObject.confidence = confidence;
+        parsedObject.edge = edge;
+        frame.objects.append(std::move(parsedObject));
+    }
+
+    return true;
+}
+
+bool parseCentralEventPayload(const QByteArray& payload, const QString& topic, CentralEventData& event,
+                              QString& error) {
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        error = QStringLiteral("Invalid central event JSON on %1: %2").arg(topic, parseError.errorString());
+        return false;
+    }
+
+    const QJsonObject object = document.object();
+    qint64 version = 0;
+    qint64 channelId = 0;
+    qint64 severity = 0;
+    qint64 timestamp = 0;
+    bool active = false;
+    bool hardwareOk = false;
+    const QJsonValue eventType = object.value(QStringLiteral("eventType"));
+    const QJsonValue hardwareState = object.value(QStringLiteral("hardwareState"));
+
+    if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
+        !readInteger(object, QStringLiteral("ts"), timestamp) || timestamp <= 0 ||
+        !readInteger(object, QStringLiteral("channelId"), channelId) ||
+        !readInteger(object, QStringLiteral("severity"), severity) || severity < 0 || severity > 3 ||
+        !readBoolean(object, QStringLiteral("active"), active) ||
+        !readBoolean(object, QStringLiteral("hardwareOk"), hardwareOk) || !eventType.isString() ||
+        eventType.toString().isEmpty() || !hardwareState.isObject()) {
+        error = QStringLiteral("Invalid required central event fields on %1").arg(topic);
+        return false;
+    }
+
+    event.channelIndex = channelIndexForStatus(channelId);
+    if (event.channelIndex < 0) {
+        error = QStringLiteral("channelId out of range on %1").arg(topic);
+        return false;
+    }
+
+    if (!parseOutputState(hardwareState.toObject(), event.hardwareState, error)) {
+        error = QStringLiteral("%1 on %2").arg(error, topic);
+        return false;
+    }
+
+    event.sourceTimestamp = timestamp;
+    event.eventType = eventType.toString();
+    event.active = active;
+    event.severity = static_cast<int>(severity);
+    event.eventId = object.value(QStringLiteral("eventId")).toString();
+    event.source = object.value(QStringLiteral("source")).toString();
+    event.hardwareOk = hardwareOk;
+    event.detail = object.value(QStringLiteral("detail")).toString();
+    return true;
+}
 }  // namespace
 
 MqttDeviceStatusConfig MqttDeviceStatusConfig::fromEnvironment() {
     const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
 
     MqttDeviceStatusConfig config;
-    config.host = environmentValue(environment, QStringLiteral("VEDA_MQTT_HOST"), QStringLiteral("172.20.27.174"));
+    config.host = environmentValue(environment, QStringLiteral("VEDA_MQTT_HOST"), QStringLiteral("100.73.128.114"));
     config.caCertificatePath =
         environmentValue(environment, QStringLiteral("VEDA_MQTT_CA_FILE"), QStringLiteral("/etc/veda/certs/ca.crt"));
     config.clientId =
@@ -303,8 +476,12 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
     const struct {
         const char* topic;
         quint8 qos;
-    } subscriptions[] = {
-        {controllerStatusTopic, statusQos}, {centralStatusTopic, statusQos}, {sensorAliveTopic, statusQos}};
+    } subscriptions[] = {{controllerStatusTopic, statusQos},
+                         {centralStatusTopic, statusQos},
+                         {sensorAliveTopic, statusQos},
+                         {directTopViewTopic, topViewQos},
+                         {relayedTopViewTopic, topViewQos},
+                         {centralEventTopic, statusQos}};
 
     for (const auto& subscription : subscriptions) {
         if (!client_->subscribe(QString::fromLatin1(subscription.topic), subscription.qos)) {
@@ -320,6 +497,41 @@ void MqttDeviceStatusGateway::scheduleReconnect() {
 }
 
 void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QString& topic) {
+    if (topic == QString::fromLatin1(centralEventTopic)) {
+        CentralEventData event;
+        QString error;
+        if (!parseCentralEventPayload(payload, topic, event, error)) {
+            emitProtocolError(error);
+            return;
+        }
+
+        emit centralEventReceived(event);
+
+        DeviceStatusReport report;
+        report.channelIndex = event.channelIndex;
+        report.sourceTimestamp = event.sourceTimestamp;
+        report.node = QStringLiteral("central-control-server");
+        report.detail = event.detail;
+        report.type = event.hardwareOk ? DeviceStatusReportType::FeedbackConfirmed
+                                       : DeviceStatusReportType::FeedbackFailed;
+        report.hasOutputState = event.hardwareOk;
+        report.outputs = event.hardwareState;
+        emit reportReceived(std::move(report));
+        return;
+    }
+
+    if (topic.endsWith(QStringLiteral("/topview"))) {
+        TopViewFrameData frame;
+        QString error;
+        if (!parseTopViewPayload(payload, topic, frame, error)) {
+            emitProtocolError(error);
+            return;
+        }
+
+        emit topViewFrameReceived(std::move(frame));
+        return;
+    }
+
     DeviceStatusReport report;
     QString error;
     bool parsed = false;

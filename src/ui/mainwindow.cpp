@@ -205,8 +205,18 @@ void MainWindow::setupDeviceStatusService() {
     connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged, this,
             &MainWindow::updateSystemStatus, Qt::QueuedConnection);
 
+    if (ui_->digitalTwinMapWidget) {
+        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived,
+                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
+                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
+    }
+
     if (dashboardPanelCoordinator_) {
         dashboardPanelCoordinator_->bindDeviceStatusService(deviceStatusService_.get());
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
+                dashboardPanelCoordinator_, &DashboardPanelCoordinator::consumeCentralEvent,
+                Qt::QueuedConnection);
     }
 
     deviceStatusService_->start();

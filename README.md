@@ -1,3 +1,5 @@
+> Updated four-channel MQTT/TopView/event integration: see [MQTT_INTEGRATION.md](MQTT_INTEGRATION.md).
+
 ## MQTT 장비 상태 연동 가이드
 
 현재 프로젝트는 `MqttDeviceStatusGateway`를 통해 MQTT/TLS 장비 상태와 센서 health를 전달합니다.
@@ -9,7 +11,7 @@
 | 토픽 | 용도 | 채널 규칙 |
 | --- | --- | --- |
 | `veda/hw/+/status` | `mqtt_tls_hw_controller_async`의 HW 동작 결과 | `channelId` 1~4를 Qt 0~3으로 변환 |
-| `veda/hw/status` | `mqtt_tls_broker_server`의 HW 동작 결과 | `channelId` 0~3을 그대로 사용 |
+| `veda/hw/status` | `mqtt_tls_broker_server`의 HW 동작 결과 | `channelId` 1~4를 Qt 0~3으로 변환 |
 | `veda/ch/+/alive` | `MqttTopViewSink`의 retained LWT health | 토픽 채널 0~3을 그대로 사용 |
 
 Qt 화면은 채널별 `HEALTH ONLINE/OFFLINE/UNKNOWN`과 LED, 사이렌, 부저의 마지막 확인 동작 상태를 표시합니다.
@@ -18,7 +20,7 @@ Qt 화면은 채널별 `HEALTH ONLINE/OFFLINE/UNKNOWN`과 LED, 사이렌, 부저
 
 | 환경 변수 | 기본값 |
 | --- | --- |
-| `VEDA_MQTT_HOST` | `172.20.27.174` |
+| `VEDA_MQTT_HOST` | `100.73.128.114` |
 | `VEDA_MQTT_PORT` | `8883` |
 | `VEDA_MQTT_CA_FILE` | `/etc/veda/certs/ca.crt` |
 | `VEDA_MQTT_CLIENT_ID` | 실행마다 생성되는 `qt-device-status-...` |
@@ -31,11 +33,11 @@ TLS 인증서 검증은 비활성화하지 않습니다. Windows에서 실행할
 
 | 항목 | 값 |
 | --- | --- |
-| 구독 Topic | `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive` |
+| 구독 Topic | `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive`, `veda/ch/+/topview`, `veda/qt/ch/+/topview`, `veda/qt/event` |
 | QoS | `1` |
 | Publish | 사용하지 않음 |
 | Retain 메시지 | `veda/ch/+/alive` health에 적용 |
-| HW 채널 ID | 컨트롤러 1~4, 중앙 브로커 0~3 |
+| HW 채널 ID | 컨트롤러와 중앙 브로커 모두 1~4 |
 | 센서 채널 ID | LWT 토픽의 0~3 |
 | MQTT 수신 처리 | `DeviceStatusGateway` 전용 스레드 |
 
@@ -56,7 +58,7 @@ const int channelIndex = channelId - 1;
 |                3 |                 2 |
 |                4 |                 3 |
 
-`veda/hw/status`와 `veda/ch/+/alive`는 0-based 채널을 그대로 사용합니다. 각 토픽 규칙의 범위를 벗어나면 프로토콜 오류로 처리합니다.
+`veda/hw/status`도 1-based `channelId`를 Qt 0-based 인덱스로 변환합니다. `veda/ch/+/alive`와 TopView의 토픽 채널만 0-based 값을 그대로 사용합니다. 각 토픽 규칙의 범위를 벗어나면 프로토콜 오류로 처리합니다.
 
 ---
 
@@ -441,7 +443,7 @@ MQTT 담당자가 구현해야 하는 범위는 다음과 같습니다.
 
 * MQTT Broker 연결
 * 연결 종료 및 재연결 처리
-* `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive` Topic 구독
+* `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive`, TopView 및 Qt event Topic 구독
 * QoS 1 적용
 * MQTT Payload JSON 파싱
 * `channelId` 검증 및 인덱스 변환
@@ -488,7 +490,7 @@ MQTT 담당자가 수정하지 않아야 하는 범위:
 ## 8. 핵심 규칙 요약
 
 ```text
-Topics: veda/hw/+/status, veda/hw/status, veda/ch/+/alive
+Topics: veda/hw/+/status, veda/hw/status, veda/ch/+/alive, veda/ch/+/topview, veda/qt/ch/+/topview, veda/qt/event
 QoS: 1
 Publish: 없음
 

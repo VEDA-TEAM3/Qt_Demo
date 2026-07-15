@@ -25,6 +25,10 @@ DeviceStatusService::DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFact
     qRegisterMetaType<DeviceStatusReport>("DeviceStatusReport");
     qRegisterMetaType<DeviceChannelStatus>("DeviceChannelStatus");
     qRegisterMetaType<QVector<DeviceChannelStatus>>("QVector<DeviceChannelStatus>");
+    qRegisterMetaType<TopViewObjectData>("TopViewObjectData");
+    qRegisterMetaType<TopViewFrameData>("TopViewFrameData");
+    qRegisterMetaType<CentralEventData>("CentralEventData");
+    qRegisterMetaType<QVector<TopViewObjectData>>("QVector<TopViewObjectData>");
 
     uiFlushTimer_.setInterval(uiFlushIntervalMsec);
     uiFlushTimer_.setSingleShot(true);
@@ -111,6 +115,10 @@ void DeviceStatusService::setupGateway() {
     connect(gatewayThread_.get(), &QThread::started, gateway_.get(), &DeviceStatusGateway::start);
     connect(gateway_.get(), &DeviceStatusGateway::reportReceived, this, &DeviceStatusService::handleReport,
             Qt::QueuedConnection);
+    connect(gateway_.get(), &DeviceStatusGateway::topViewFrameReceived, this,
+            &DeviceStatusService::topViewFrameReceived, Qt::QueuedConnection);
+    connect(gateway_.get(), &DeviceStatusGateway::centralEventReceived, this,
+            &DeviceStatusService::centralEventReceived, Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::brokerConnectionChanged, this,
             &DeviceStatusService::handleBrokerConnection, Qt::QueuedConnection);
 }
@@ -154,6 +162,9 @@ void DeviceStatusService::handleReport(DeviceStatusReport report) {
         case DeviceStatusReportType::FeedbackConfirmed:
             handleConfirmedFeedback(report);
             return;
+        case DeviceStatusReportType::FeedbackAcknowledged:
+            handleAcknowledgedFeedback(report);
+            return;
         case DeviceStatusReportType::FeedbackFailed:
             handleFailedFeedback(report);
             return;
@@ -173,6 +184,22 @@ void DeviceStatusService::handleSensorHealth(const DeviceStatusReport& report, S
     status.channelIndex = report.channelIndex;
     status.sensorHealth = health;
     status.sensorDetail = report.detail;
+
+    channelStatuses_.insert(status.channelIndex, status);
+    queueChannelStatus(std::move(status));
+}
+
+void DeviceStatusService::handleAcknowledgedFeedback(const DeviceStatusReport& report) {
+    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount) {
+        emit protocolError(QStringLiteral("Invalid acknowledged device feedback channel"));
+        return;
+    }
+
+    DeviceChannelStatus status = channelStatuses_.value(report.channelIndex);
+    status.channelIndex = report.channelIndex;
+    status.feedbackHealth = DeviceFeedbackHealth::Confirmed;
+    status.detail = report.detail;
+    status.confirmedSourceTimestamp = report.sourceTimestamp;
 
     channelStatuses_.insert(status.channelIndex, status);
     queueChannelStatus(std::move(status));

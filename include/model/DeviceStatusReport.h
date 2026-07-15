@@ -10,6 +10,7 @@ enum class DeviceStatusReportType {
     SensorOnline,
     SensorOffline,
     FeedbackConfirmed,
+    FeedbackAcknowledged,
     FeedbackFailed,
     ProtocolError,
 };
