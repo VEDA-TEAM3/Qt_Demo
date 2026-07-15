@@ -4,6 +4,8 @@
 #include <memory>
 
 class QFrame;
+class QEnterEvent;
+class QEvent;
 class QLabel;
 class QMouseEvent;
 class QResizeEvent;
@@ -20,8 +22,11 @@ public slots:
 
 signals:
     void doubleClicked(ClickableVideoWidget* widget);
+    void hoverChanged(bool hovered);
 
 protected:
+    void enterEvent(QEnterEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -31,7 +36,8 @@ protected:
 
 private:
     void emitDoubleClickedOnce();
-    void updateLoadingOverlayGeometry();
+    void setHoverHighlighted(bool highlighted);
+    void updateOverlayGeometry();
 
 private:
     std::shared_ptr<QFrame> loadingOverlay_;
@@ -40,4 +46,5 @@ private:
     std::shared_ptr<QVBoxLayout> loadingLayout_;
 
     qint64 lastDoubleClickMsec_ = 0;
+    bool hovered_ = false;
 };

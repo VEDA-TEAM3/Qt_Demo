@@ -59,7 +59,11 @@ QLabel#navCollapse {
 
 QFrame#topBarFrame {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0c2036, stop:1 #06111f);
+    border-top: 1px solid #1b3049;
+    border-right: 1px solid #1f344d;
     border-bottom: 1px solid #314968;
+    border-left: 1px solid #45627f;
+    border-radius: 8px;
 }
 
 QLabel#titleLabel {
@@ -119,20 +123,26 @@ QLabel#settingsLabel {
     font-weight: 800;
 }
 
+QLabel#settingsLabel:hover {
+    color: #ffffff;
+    background-color: #1c3f63;
+    border-color: #78baff;
+}
+
 QFrame#topSectionFrame, QFrame#bottomSectionFrame {
     background-color: transparent;
     border: 0;
 }
 
 QFrame#cctvCard, QFrame#mapCard, QFrame#eventLogCard, QFrame#deviceStatusCard,
-QFrame#riskSummaryCard, QFrame#objectListCard, QFrame#legendFrame {
+QFrame#objectListCard, QFrame#legendFrame {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #12263d, stop:0.46 #0c1a2d, stop:1 #071221);
     border: 1px solid #3f5b78;
     border-radius: 8px;
 }
 
 QLabel#monitorTitleLabel, QLabel#mapTitleLabel, QLabel#eventLogTitleLabel,
-QLabel#deviceStatusTitleLabel, QLabel#riskSummaryTitleLabel, QLabel#objectListTitleLabel {
+QLabel#deviceStatusTitleLabel, QLabel#objectListTitleLabel {
     color: #ffffff;
     font-size: 16px;
     font-weight: 900;
@@ -147,13 +157,97 @@ QLabel#cameraSelectLabel {
 }
 
 QFrame#mapPlaceholderFrame, QFrame#eventLogBodyFrame, QFrame#deviceStatusBodyFrame,
-QFrame#riskSummaryBodyFrame, QFrame#objectListBodyFrame {
+QFrame#objectListBodyFrame {
     background-color: #06111f;
     border: 1px solid #304966;
     border-radius: 6px;
 }
 
-QTableView#objectListTable {
+QFrame#deviceStatusBodyFrame {
+    background-color: transparent;
+    border: 0;
+}
+
+QFrame#deviceChannelCard {
+    background-color: #07182a;
+    border: 1px solid #25527c;
+    border-radius: 7px;
+}
+
+QFrame#deviceChannelCard[feedbackHealth="unknown"] {
+    border-color: #31475e;
+}
+
+QFrame#deviceChannelCard[feedbackHealth="failed"] {
+    border-color: #ff5a5f;
+}
+
+QLabel#deviceChannelTitleLabel {
+    color: #2ebcff;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+QFrame#deviceStatusRow {
+    background-color: #0a1c31;
+    border: 1px solid #21405e;
+    border-radius: 6px;
+    min-height: 28px;
+}
+
+QLabel#deviceStatusIconLabel {
+    background-color: transparent;
+}
+
+QFrame#deviceStatusSeparator {
+    background-color: #345575;
+    border: 0;
+}
+
+QLabel#deviceStateSegment {
+    background-color: #07101d;
+    border: 1px solid #263a52;
+    color: #5f7187;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 2px 3px;
+}
+
+QLabel#deviceStateSegment[stateKind="safe"][active="true"],
+QLabel#deviceStateSegment[stateKind="off"][active="true"] {
+    background-color: #0b3421;
+    border-color: #5bff4e;
+    color: #5bff4e;
+}
+
+QLabel#deviceStateSegment[stateKind="warning"][active="true"] {
+    background-color: #332b08;
+    border-color: #ffd020;
+    color: #ffd020;
+}
+
+QLabel#deviceStateSegment[stateKind="danger"][active="true"],
+QLabel#deviceStateSegment[stateKind="on"][active="true"] {
+    background-color: #351016;
+    border-color: #ff4545;
+    color: #ff4545;
+}
+
+QLabel#deviceStateSegment[stateKind="safe"][active="false"],
+QLabel#deviceStateSegment[stateKind="off"][active="false"] {
+    color: #245d38;
+}
+
+QLabel#deviceStateSegment[stateKind="warning"][active="false"] {
+    color: #66571a;
+}
+
+QLabel#deviceStateSegment[stateKind="danger"][active="false"],
+QLabel#deviceStateSegment[stateKind="on"][active="false"] {
+    color: #683035;
+}
+
+QTableView#objectListTable, QTableView#eventLogTable {
     background-color: transparent;
     border: 0;
     color: #e5eefb;
@@ -162,12 +256,12 @@ QTableView#objectListTable {
     outline: 0;
 }
 
-QTableView#objectListTable::item {
+QTableView#objectListTable::item, QTableView#eventLogTable::item {
     border-bottom: 1px solid #243b56;
     padding: 3px 4px;
 }
 
-QTableView#objectListTable QHeaderView::section {
+QTableView#objectListTable QHeaderView::section, QTableView#eventLogTable QHeaderView::section {
     background-color: #0f2034;
     border: 0;
     border-bottom: 1px solid #3f5b78;
@@ -199,8 +293,19 @@ ClickableVideoWidget[loading="true"] {
     border: 1px solid #4388f2;
 }
 
+QFrame#videoTileFrame {
+    background-color: #172a40;
+    border: 2px solid #172a40;
+    border-radius: 6px;
+}
+
+QFrame#videoTileFrame[hovered="true"] {
+    background-color: #58a6ff;
+    border-color: #58a6ff;
+}
+
 QFrame#videoLoadingOverlay {
-    background-color: rgba(5, 13, 24, 238);
+    background-color: #020712;
     border-radius: 6px;
 }
 

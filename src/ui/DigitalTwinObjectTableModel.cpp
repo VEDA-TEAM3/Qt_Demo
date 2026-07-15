@@ -18,8 +18,6 @@ QString objectTypeText(DigitalTwinObjectType objectType) {
             return QStringLiteral("차량");
         case DigitalTwinObjectType::Pedestrian:
             return QStringLiteral("보행자");
-        case DigitalTwinObjectType::Motorcycle:
-            return QStringLiteral("오토바이");
     }
 
     return QStringLiteral("-");
@@ -36,8 +34,6 @@ QString objectTypeIconPath(DigitalTwinObjectType objectType) {
             return QStringLiteral(":/icons/vehicle_icon.png");
         case DigitalTwinObjectType::Pedestrian:
             return QStringLiteral(":/icons/human_icon.png");
-        case DigitalTwinObjectType::Motorcycle:
-            return QStringLiteral(":/icons/motor_icon.png");
     }
 
     return QStringLiteral(":/icons/vehicle_icon.png");
@@ -145,10 +141,6 @@ QVariant DigitalTwinObjectTableModel::data(const QModelIndex& index, int role) c
     const DigitalTwinObject& object = objects_[index.row()];
 
     if (role == Qt::TextAlignmentRole) {
-        if (index.column() == ObjectTypeColumn) {
-            return QVariant::fromValue(Qt::AlignLeft | Qt::AlignVCenter);
-        }
-
         return Qt::AlignCenter;
     }
 

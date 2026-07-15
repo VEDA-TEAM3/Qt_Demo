@@ -42,12 +42,13 @@ Use Doxygen comments for classes and public functions. Avoid comments that only 
 
 ## Memory
 
-C++ code must not directly call `new`, `delete`, `malloc`, or `free`.
+C++ code must not directly call `delete`, `malloc`, or `free`.
 
 - Prefer `std::shared_ptr` for dynamic ownership.
 - Use `std::unique_ptr` only when exclusive ownership is specifically justified.
-- Qt objects may still use Qt parent relationships, but owned allocations should be wrapped by standard smart pointers
-  where practical.
+- Qt `QObject` and `QWidget` instances may use `new` only when a parent is passed at construction and the Qt object tree
+  clearly owns the instance. This follows Qt's documented parent-child lifetime model.
+- Parentless C++ objects must be wrapped by standard smart pointers.
 
 ## C Error Handling
 

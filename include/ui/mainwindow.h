@@ -4,24 +4,22 @@
 #include <QVector>
 #include <memory>
 
-#include "model/DigitalTwinTypes.h"
 #include "model/StreamConfig.h"
 
 class ClickableVideoWidget;
-class DigitalTwinObjectTableModel;
+class DashboardPanelCoordinator;
+class DashboardPanelFactory;
+class DeviceStatusGatewayFactory;
+class DeviceStatusPanel;
+class DeviceStatusService;
+class EventLogPanel;
+class ObjectListPanel;
+class QFrame;
+class QResizeEvent;
 class QShowEvent;
-class QStyledItemDelegate;
-class QTableView;
-class QThread;
-class QVBoxLayout;
-class StreamReceiver;
 class StreamReceiverFactory;
+class StreamSessionManager;
 class QWidget;
-
-struct ReceiverWorker {
-    std::shared_ptr<QThread> thread;
-    std::shared_ptr<StreamReceiver> receiver;
-};
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -33,21 +31,27 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFactory,
+                        std::shared_ptr<DeviceStatusGatewayFactory> deviceStatusGatewayFactory,
+                        std::shared_ptr<DashboardPanelFactory> dashboardPanelFactory,
+                        QWidget* parent = nullptr);
     ~MainWindow() override;
 
 protected:
+    void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
 
 private:
     void setupDashboardLayout();
-    void setupObjectListTable();
+    void setupDashboardPanels();
+    void setupDashboardPanelCoordinator();
+    void setupDeviceStatusService();
     void setupStreamConfigs();
-    void setupReceivers();
-    void startReceivers();
-    void startReceiverSequentially(int receiverIndex);
+    void setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory);
     void setupVideoViewEvents();
-    void updateObjectListTable(QVector<DigitalTwinObject> objects);
+
+    void updateDashboardAdaptiveSizes();
+
     void toggleExpandVideo(QWidget* targetWidget);
     void expandVideo(QWidget* targetWidget);
     void restoreVideoGrid();
@@ -55,16 +59,20 @@ private:
 
 private:
     std::shared_ptr<Ui::MainWindow> ui_;
-    std::shared_ptr<StreamReceiverFactory> streamReceiverFactory_;
-
-    QVector<ReceiverWorker> receiverWorkers_;
-    bool receiversStarted_ = false;
+    std::shared_ptr<DeviceStatusGatewayFactory> deviceStatusGatewayFactory_;
+    std::shared_ptr<DashboardPanelFactory> dashboardPanelFactory_;
+    std::shared_ptr<DeviceStatusService> deviceStatusService_;
 
     QVector<QWidget*> videoWidgets_;
+    QVector<QFrame*> videoTileFrames_;
     QVector<StreamConfig> streamConfigs_;
-    std::shared_ptr<QVBoxLayout> objectListLayout_;
-    std::shared_ptr<DigitalTwinObjectTableModel> objectListModel_;
-    std::shared_ptr<QTableView> objectListTable_;
-    std::shared_ptr<QStyledItemDelegate> objectTypeDelegate_;
+
+    StreamSessionManager* streamSessionManager_ = nullptr;
+    DashboardPanelCoordinator* dashboardPanelCoordinator_ = nullptr;
+    DeviceStatusPanel* deviceStatusPanel_ = nullptr;
+    EventLogPanel* eventLogPanel_ = nullptr;
+    ObjectListPanel* objectListPanel_ = nullptr;
     QWidget* expandedWidget_ = nullptr;
+
+    bool streamSessionStarted_ = false;
 };

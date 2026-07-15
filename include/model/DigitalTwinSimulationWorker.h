@@ -26,7 +26,7 @@ public slots:
     void stop();
 
 signals:
-    void objectsUpdated(QVector<DigitalTwinObject> objects);
+    void snapshotUpdated(DigitalTwinSnapshot snapshot);
     void riskEventDetected(DigitalTwinRiskEvent event);
 
 private slots:
@@ -40,12 +40,13 @@ private:
     void spawnObjectIfNeeded();
     void scheduleNextSpawn();
     void updateRiskLevels();
-    void emitCurrentObjects();
+    void emitCurrentSnapshot();
 
-    std::shared_ptr<QTimer> updateTimer_;
+    QTimer* updateTimer_ = nullptr;
     std::shared_ptr<DigitalTwinRiskPolicy> riskPolicy_;
     std::shared_ptr<DigitalTwinObjectSpawner> objectSpawner_;
     QVector<DigitalTwinObject> objects_;
+    QVector<DigitalTwinPairRiskState> pairRiskStates_;
     QHash<QString, DigitalTwinRiskLevel> previousPairRiskLevels_;
     QHash<QString, int> pairPulseCooldownTicks_;
     int spawnCountdownMsec_ = 0;

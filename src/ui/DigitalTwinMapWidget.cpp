@@ -1,5 +1,6 @@
 #include "ui/DigitalTwinMapWidget.h"
 
+#include <QDebug>
 #include <QFrame>
 #include <QGraphicsPathItem>
 #include <QGraphicsPixmapItem>
@@ -18,8 +19,10 @@
 #include <QtGlobal>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 #include "model/DigitalTwinSimulationWorker.h"
+#include "overlays/DangerAlertOverlay.h"
 #include "ui/DigitalTwinMapSceneBuilder.h"
 #include "ui/DigitalTwinObjectStyleProvider.h"
 
@@ -124,7 +127,28 @@ void releaseSceneItem(QGraphicsScene* scene, QGraphicsItem* item) {
         scene->removeItem(item);
     }
 
-    std::shared_ptr<QGraphicsItem> itemOwner(item);
+    std::unique_ptr<QGraphicsItem> itemOwner(item);
+}
+
+/**
+ * @brief           스냅샷에 하나 이상의 위험 객체 또는 객체 쌍이 있는지 확인합니다.
+ * @param snapshot  현재 디지털 트윈 상태
+ * @return          위험이 유지 중이면 true
+ */
+bool hasActiveDanger(const DigitalTwinSnapshot& snapshot) {
+    for (const auto& pairRiskState : snapshot.pairRiskStates) {
+        if (pairRiskState.riskLevel == DigitalTwinRiskLevel::Danger) {
+            return true;
+        }
+    }
+
+    for (const auto& object : snapshot.objects) {
+        if (object.riskLevel == DigitalTwinRiskLevel::Danger) {
+            return true;
+        }
+    }
+
+    return false;
 }
 }  // namespace
 
@@ -138,10 +162,12 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
       objectStyleProvider_(std::make_shared<DefaultDigitalTwinObjectStyleProvider>()) {
     qRegisterMetaType<DigitalTwinObject>("DigitalTwinObject");
     qRegisterMetaType<DigitalTwinRiskEvent>("DigitalTwinRiskEvent");
+    qRegisterMetaType<DigitalTwinSnapshot>("DigitalTwinSnapshot");
     qRegisterMetaType<QVector<DigitalTwinObject>>("QVector<DigitalTwinObject>");
 
     setObjectName(QStringLiteral("digitalTwinMapWidget"));
     setScene(&scene_);
+    scene_.setItemIndexMethod(QGraphicsScene::NoIndex);
     setFrameShape(QFrame::NoFrame);
     setRenderHint(QPainter::Antialiasing, true);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -151,6 +177,8 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
 
     overlayManager_.setScene(&scene_);
+    dangerAlertOverlay_ = new DangerAlertOverlay(viewport());
+    dangerAlertOverlay_->updateGeometryForViewport(viewport()->size());
 
     setupScene();
     setupSimulationWorker();
@@ -165,7 +193,6 @@ DigitalTwinMapWidget::~DigitalTwinMapWidget() {
         disconnect(simulationWorker_.get(), nullptr, this, nullptr);
     }
 
-    stopDemo();
     overlayManager_.clear();
 
     if (simulationWorker_ && simulationWorker_->thread() == &simulationThread_ && simulationThread_.isRunning()) {
@@ -214,6 +241,10 @@ void DigitalTwinMapWidget::stopDemo() {
 void DigitalTwinMapWidget::resizeEvent(QResizeEvent* event) {
     QGraphicsView::resizeEvent(event);
     fitMapInView();
+
+    if (dangerAlertOverlay_) {
+        dangerAlertOverlay_->updateGeometryForViewport(viewport()->size());
+    }
 }
 
 /**
@@ -225,6 +256,10 @@ void DigitalTwinMapWidget::setupScene() {
     demoItems_.clear();
     visualItemIndexes_.clear();
     mapRect_ = sceneBuilder_->build(&scene_);
+
+    if (dangerAlertOverlay_) {
+        dangerAlertOverlay_->setActive(false);
+    }
 }
 
 /**
@@ -232,15 +267,33 @@ void DigitalTwinMapWidget::setupScene() {
  */
 void DigitalTwinMapWidget::setupSimulationWorker() {
     simulationWorker_ = std::make_shared<DigitalTwinSimulationWorker>();
-    simulationWorker_->moveToThread(&simulationThread_);
 
-    connect(simulationWorker_.get(), &DigitalTwinSimulationWorker::objectsUpdated, this,
-            &DigitalTwinMapWidget::applyObjectUpdates);
+    if (!simulationWorker_->moveToThread(&simulationThread_)) {
+        qWarning() << "[DigitalTwinMapWidget] Failed to move simulation worker to its thread";
+        simulationWorker_.reset();
+        return;
+    }
+
+    connect(simulationWorker_.get(), &DigitalTwinSimulationWorker::snapshotUpdated, this,
+            &DigitalTwinMapWidget::applySimulationSnapshot, Qt::QueuedConnection);
     connect(simulationWorker_.get(), &DigitalTwinSimulationWorker::riskEventDetected, this,
             &DigitalTwinMapWidget::showRiskPulse, Qt::QueuedConnection);
 
     simulationThread_.setObjectName(QStringLiteral("digital-twin-simulation"));
     simulationThread_.start();
+}
+
+/**
+ * @brief           worker 스냅샷을 scene에 반영한 뒤 대시보드 소비자에게 전달합니다.
+ * @param snapshot  객체와 객체 쌍 위험 상태를 함께 담은 최신 스냅샷
+ */
+void DigitalTwinMapWidget::applySimulationSnapshot(const DigitalTwinSnapshot& snapshot) {
+    if (dangerAlertOverlay_) {
+        dangerAlertOverlay_->setActive(hasActiveDanger(snapshot));
+    }
+
+    applyObjectUpdates(snapshot.objects);
+    emit simulationSnapshotUpdated(snapshot);
 }
 
 /**
@@ -273,8 +326,6 @@ void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& 
     if (createdNewItem) {
         fitMapInView();
     }
-
-    emit objectListUpdated(objects);
 }
 
 /**

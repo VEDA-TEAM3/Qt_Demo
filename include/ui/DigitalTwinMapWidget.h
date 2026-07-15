@@ -14,6 +14,7 @@
 class DigitalTwinSimulationWorker;
 class DigitalTwinMapSceneBuilder;
 class DigitalTwinObjectStyleProvider;
+class DangerAlertOverlay;
 class QGraphicsPathItem;
 class QGraphicsPixmapItem;
 class QGraphicsSimpleTextItem;
@@ -31,7 +32,7 @@ public:
     void stopDemo();
 
 signals:
-    void objectListUpdated(QVector<DigitalTwinObject> objects);
+    void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -48,6 +49,7 @@ private:
 
     void setupScene();
     void setupSimulationWorker();
+    void applySimulationSnapshot(const DigitalTwinSnapshot& snapshot);
     void applyObjectUpdates(const QVector<DigitalTwinObject>& objects);
     void showRiskPulse(const DigitalTwinRiskEvent& event);
     void createVisualItem(const DigitalTwinObject& object);
@@ -63,6 +65,7 @@ private:
     QGraphicsScene scene_;
     QThread simulationThread_;
     OverlayManager overlayManager_;
+    DangerAlertOverlay* dangerAlertOverlay_ = nullptr;
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
     std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;

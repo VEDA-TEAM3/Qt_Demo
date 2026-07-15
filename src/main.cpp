@@ -5,8 +5,13 @@
 #include <QFile>
 #include <QIcon>
 #include <QStringList>
+#include <memory>
+#include <utility>
 
+#include "network/DemoDeviceStatusGatewayFactory.h"
 #include "ui/mainwindow.h"
+#include "ui/panels/DefaultDashboardPanelFactory.h"
+#include "video/GstStreamReceiverFactory.h"
 
 namespace {
 /**
@@ -47,7 +52,11 @@ int main(int argc, char* argv[]) {
         loadApplicationStyle(app);
 
         {
-            MainWindow window;
+            auto streamReceiverFactory = std::make_shared<GstStreamReceiverFactory>();
+            auto deviceStatusGatewayFactory = std::make_shared<DemoDeviceStatusGatewayFactory>();
+            auto dashboardPanelFactory = std::make_shared<DefaultDashboardPanelFactory>();
+            MainWindow window(std::move(streamReceiverFactory), std::move(deviceStatusGatewayFactory),
+                              std::move(dashboardPanelFactory));
             window.setWindowIcon(app.windowIcon());
             window.resize(1680, 945);
             window.show();

@@ -1,20 +1,13 @@
 #include "ui/mainwindow.h"
 
-#include <QAbstractItemView>
 #include <QDebug>
-#include <QEvent>
+#include <QFrame>
 #include <QGridLayout>
-#include <QHeaderView>
 #include <QLabel>
-#include <QMetaObject>
-#include <QPainter>
+#include <QResizeEvent>
 #include <QShowEvent>
-#include <QSize>
 #include <QSizePolicy>
-#include <QStyleOptionViewItem>
-#include <QStyledItemDelegate>
-#include <QTableView>
-#include <QThread>
+#include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
@@ -22,68 +15,48 @@
 #include <memory>
 #include <utility>
 
+#include "network/DeviceStatusGatewayFactory.h"
+#include "network/DeviceStatusService.h"
 #include "network/rtsp.h"
 #include "ui/ClickableVideoWidget.h"
 #include "ui/DashboardLayout.h"
 #include "ui/DigitalTwinMapWidget.h"
-#include "ui/DigitalTwinObjectTableModel.h"
+#include "ui/panels/DashboardPanelCoordinator.h"
+#include "ui/panels/DashboardPanelFactory.h"
+#include "ui/panels/DeviceStatusPanel.h"
+#include "ui/panels/EventLogPanel.h"
+#include "ui/panels/ObjectListPanel.h"
 #include "ui_mainwindow.h"
-#include "video/StreamReceiver.h"
 #include "video/StreamReceiverFactory.h"
+#include "video/StreamSessionManager.h"
 
 namespace {
-constexpr int initialReceiverStartDelayMsec = 1000;
-constexpr int receiverStartSpacingMsec = 3000;
-constexpr int objectIdColumn = 0;
-constexpr int objectTypeColumn = 1;
-constexpr int objectPositionColumn = 2;
-constexpr int objectAreaColumn = 3;
-constexpr int objectIdColumnWidth = 64;
-constexpr int objectTypeColumnWidth = 98;
-constexpr int objectPositionColumnWidth = 104;
-constexpr int objectAreaColumnWidth = 74;
-constexpr int objectTypeColumnIndent = 10;
-
-class ObjectTypeItemDelegate final : public QStyledItemDelegate {
-public:
-    /**
-     * @brief        유형 컬럼 전용 delegate를 생성합니다.
-     * @param parent  Qt 객체 소유권을 연결할 부모 객체
-     */
-    explicit ObjectTypeItemDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
-
-    /**
-     * @brief         유형 컬럼의 아이콘과 텍스트를 살짝 오른쪽으로 옮겨 그립니다.
-     * @param painter  셀을 그릴 painter
-     * @param option   기본 셀 표시 옵션
-     * @param index    그릴 model index
-     */
-    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
-        QStyleOptionViewItem adjustedOption(option);
-        adjustedOption.rect.adjust(objectTypeColumnIndent, 0, 0, 0);
-        QStyledItemDelegate::paint(painter, adjustedOption, index);
-    }
-};
+constexpr int initialStreamStartDelayMsec = 1000;
 }  // namespace
 
 /**
- * @brief       메인 UI를 구성하고 스트림 수신기 준비 작업을 수행합니다.
- * @param parent  부모 위젯
+ * @brief                       메인 UI를 구성하고 주입된 외부 연동 구현을 연결합니다.
+ * @param streamReceiverFactory 영상 수신기 생성 factory
+ * @param deviceStatusGatewayFactory 장비 상태 gateway 생성 factory
+ * @param dashboardPanelFactory 대시보드 패널 생성 factory
+ * @param parent                부모 위젯
  */
-MainWindow::MainWindow(QWidget* parent)
+MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFactory,
+                       std::shared_ptr<DeviceStatusGatewayFactory> deviceStatusGatewayFactory,
+                       std::shared_ptr<DashboardPanelFactory> dashboardPanelFactory, QWidget* parent)
     : QMainWindow(parent),
       ui_(std::make_shared<Ui::MainWindow>()),
-      streamReceiverFactory_(std::make_shared<GstStreamReceiverFactory>()) {
+      deviceStatusGatewayFactory_(std::move(deviceStatusGatewayFactory)),
+      dashboardPanelFactory_(std::move(dashboardPanelFactory)) {
     ui_->setupUi(this);
 
     setupStreamConfigs();
     setupDashboardLayout();
-    setupObjectListTable();
+    setupDashboardPanels();
+    setupDashboardPanelCoordinator();
+    setupDeviceStatusService();
     setupVideoViewEvents();
-    setupReceivers();
-
-    connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::objectListUpdated, this,
-            &MainWindow::updateObjectListTable, Qt::QueuedConnection);
+    setupStreamSessionManager(std::move(streamReceiverFactory));
 }
 
 /**
@@ -101,120 +74,150 @@ void MainWindow::setupStreamConfigs() {
  */
 void MainWindow::setupDashboardLayout() {
     DashboardLayout::apply(this, ui_.get());
+    ui_->titleLabel->setTextFormat(Qt::RichText);
+    ui_->titleLabel->setText(
+        QStringLiteral("<span style=\"color:#a8d4ff;\">Wise AI</span>"
+                       "<span style=\"color:#ffffff;\"> 기반 주차장 디지털 트윈 관제 시스템</span>"));
     updateCameraSelectionLabel(nullptr);
 }
 
 /**
- * @brief   실시간 객체 목록 테이블을 생성하고 표시 형식을 설정합니다.
+ * @brief   주입된 factory를 통해 대시보드 패널을 생성하고 placeholder에 배치합니다.
  */
-void MainWindow::setupObjectListTable() {
-    if (!ui_->objectListBodyFrame || objectListTable_) {
+void MainWindow::setupDashboardPanels() {
+    if (!dashboardPanelFactory_) {
+        qWarning() << "[MainWindow] Dashboard panel factory is not configured";
         return;
     }
 
-    objectListLayout_ = std::make_shared<QVBoxLayout>(ui_->objectListBodyFrame);
-    objectListLayout_->setContentsMargins(0, 0, 0, 0);
-    objectListLayout_->setSpacing(0);
+    ui_->deviceStatusTitleLabel->setVisible(false);
 
-    objectListModel_ = std::make_shared<DigitalTwinObjectTableModel>(ui_->objectListBodyFrame);
-    objectListTable_ = std::make_shared<QTableView>(ui_->objectListBodyFrame);
-    objectTypeDelegate_ = std::make_shared<ObjectTypeItemDelegate>(objectListTable_.get());
+    DashboardPanelHosts hosts;
+    hosts.deviceStatusHost = ui_->deviceStatusBodyFrame;
+    hosts.eventLogHost = ui_->eventLogBodyFrame;
+    hosts.objectListHost = ui_->objectListBodyFrame;
 
-    objectListTable_->setObjectName(QStringLiteral("objectListTable"));
-    objectListTable_->setModel(objectListModel_.get());
-    objectListTable_->setItemDelegateForColumn(objectTypeColumn, objectTypeDelegate_.get());
-    objectListTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    objectListTable_->setFocusPolicy(Qt::NoFocus);
-    objectListTable_->setSelectionMode(QAbstractItemView::NoSelection);
-    objectListTable_->setShowGrid(false);
-    objectListTable_->setAlternatingRowColors(false);
-    objectListTable_->setIconSize(QSize(18, 18));
-    objectListTable_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    objectListTable_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    objectListTable_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    objectListTable_->verticalHeader()->setVisible(false);
-    objectListTable_->verticalHeader()->setDefaultSectionSize(30);
-    objectListTable_->horizontalHeader()->setHighlightSections(false);
-    objectListTable_->horizontalHeader()->setStretchLastSection(false);
-    objectListTable_->horizontalHeader()->setSectionsMovable(false);
-    objectListTable_->horizontalHeader()->setSectionsClickable(false);
-    objectListTable_->horizontalHeader()->setMinimumSectionSize(40);
-    objectListTable_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    objectListTable_->setColumnWidth(objectIdColumn, objectIdColumnWidth);
-    objectListTable_->setColumnWidth(objectTypeColumn, objectTypeColumnWidth);
-    objectListTable_->setColumnWidth(objectPositionColumn, objectPositionColumnWidth);
-    objectListTable_->setColumnWidth(objectAreaColumn, objectAreaColumnWidth);
-
-    objectListLayout_->addWidget(objectListTable_.get());
+    const DashboardPanels panels = dashboardPanelFactory_->createPanels(hosts);
+    deviceStatusPanel_ = panels.deviceStatusPanel;
+    eventLogPanel_ = panels.eventLogPanel;
+    objectListPanel_ = panels.objectListPanel;
 }
 
 /**
- * @brief   실행 중인 RTSP 수신기와 worker 스레드를 안전하게 종료합니다.
+ * @brief   패널 데이터 갱신 경로를 MainWindow 밖의 coordinator에 연결합니다.
+ */
+void MainWindow::setupDashboardPanelCoordinator() {
+    if (dashboardPanelCoordinator_) {
+        return;
+    }
+
+    dashboardPanelCoordinator_ =
+        new DashboardPanelCoordinator(deviceStatusPanel_, eventLogPanel_, objectListPanel_, this);
+
+    if (!ui_->digitalTwinMapWidget) {
+        return;
+    }
+
+    connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::simulationSnapshotUpdated, dashboardPanelCoordinator_,
+            &DashboardPanelCoordinator::consumeDigitalTwinSnapshot, Qt::QueuedConnection);
+}
+
+/**
+ * @brief   장비 상태 service를 생성해 coordinator에 연결하고 worker를 시작합니다.
+ */
+void MainWindow::setupDeviceStatusService() {
+    if (deviceStatusService_) {
+        return;
+    }
+
+    if (!deviceStatusGatewayFactory_) {
+        qWarning() << "[MainWindow] Device status gateway factory is not configured";
+        return;
+    }
+
+    deviceStatusService_ = std::make_shared<DeviceStatusService>(deviceStatusGatewayFactory_);
+
+    if (dashboardPanelCoordinator_) {
+        dashboardPanelCoordinator_->bindDeviceStatusService(deviceStatusService_.get());
+    }
+
+    deviceStatusService_->start();
+}
+
+/**
+ * @brief 외부 연동 service와 영상 스트림 세션을 종료합니다.
  */
 MainWindow::~MainWindow() {
-    QThread* mainThread = QThread::currentThread();
-
-    for (const auto& worker : receiverWorkers_) {
-        const auto& receiver = worker.receiver;
-
-        if (!receiver) {
-            continue;
-        }
-
-        if (receiver->thread() && receiver->thread() != mainThread && receiver->thread()->isRunning()) {
-            QMetaObject::invokeMethod(
-                receiver.get(),
-                [receiver = receiver.get(), mainThread]() {
-                    receiver->stop();
-                    receiver->moveInternalObjectsToThread(mainThread);
-                },
-                Qt::BlockingQueuedConnection);
-        } else {
-            receiver->stop();
-            receiver->moveInternalObjectsToThread(mainThread);
-        }
+    if (streamSessionManager_) {
+        streamSessionManager_->stop();
     }
 
-    for (const auto& worker : receiverWorkers_) {
-        const auto& thread = worker.thread;
-
-        if (!thread) {
-            continue;
-        }
-
-        thread->quit();
-        thread->wait();
+    if (deviceStatusService_) {
+        deviceStatusService_->stop();
     }
-
-    receiverWorkers_.clear();
 }
 
 /**
- * @brief       창이 처음 표시된 뒤 일정 간격으로 RTSP 수신기를 시작합니다.
- * @param event  Qt show 이벤트
+ * @brief       창 크기 변화에 맞춰 하단 패널 높이와 목록 컬럼 폭을 보정합니다.
+ * @param event  Qt resize 이벤트
+ */
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    updateDashboardAdaptiveSizes();
+}
+
+/**
+ * @brief       창이 처음 표시된 뒤 RTSP 스트림 세션을 시작합니다.
+ * @param event Qt show 이벤트
  */
 void MainWindow::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
+    updateDashboardAdaptiveSizes();
 
-    if (!receiversStarted_) {
-        receiversStarted_ = true;
-
-        QTimer::singleShot(initialReceiverStartDelayMsec, this, [this]() { startReceivers(); });
+    if (streamSessionStarted_ || !streamSessionManager_) {
+        return;
     }
+
+    streamSessionStarted_ = true;
+
+    QTimer::singleShot(initialStreamStartDelayMsec, this, [this]() {
+        if (streamSessionManager_) {
+            streamSessionManager_->start();
+        }
+    });
 }
 
 /**
- * @brief   4분할 영상 위젯의 더블클릭 이벤트를 확대/복구 동작에 연결합니다.
+ * @brief   현재 창 크기에 맞춰 대시보드 하단 영역과 객체 목록 폭을 보정합니다.
+ */
+void MainWindow::updateDashboardAdaptiveSizes() { DashboardLayout::adjustBottomSectionHeight(this, ui_.get()); }
+
+/**
+ * @brief 4분할 영상 위젯의 더블클릭 이벤트를 확대/복구 동작에 연결합니다.
  */
 void MainWindow::setupVideoViewEvents() {
-    videoWidgets_ = {ui_->camView1, ui_->camView2, ui_->camView3, ui_->camView4};
+    videoWidgets_ = {
+        ui_->camView1,
+        ui_->camView2,
+        ui_->camView3,
+        ui_->camView4,
+    };
 
-    for (auto* widget : videoWidgets_) {
+    auto* grid = ui_->videoGridLayout;
+
+    if (!grid) {
+        qWarning() << "[MainWindow] videoGridLayout is null";
+        return;
+    }
+
+    videoTileFrames_.reserve(videoWidgets_.size());
+
+    for (qsizetype index = 0; index < videoWidgets_.size(); ++index) {
+        auto* widget = videoWidgets_[index];
+
         if (!widget) {
             continue;
         }
-
-        widget->setAttribute(Qt::WA_NativeWindow);
 
         auto* clickable = qobject_cast<ClickableVideoWidget*>(widget);
 
@@ -223,21 +226,95 @@ void MainWindow::setupVideoViewEvents() {
             continue;
         }
 
+        grid->removeWidget(widget);
+
+        auto* tileFrame = new QFrame(ui_->cctvCard);
+        tileFrame->setObjectName(QStringLiteral("videoTileFrame"));
+        tileFrame->setProperty("hovered", false);
+        tileFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+        auto* tileLayout = new QVBoxLayout(tileFrame);
+        tileLayout->setContentsMargins(2, 2, 2, 2);
+        tileLayout->setSpacing(0);
+        tileLayout->addWidget(widget);
+
+        grid->addWidget(tileFrame, static_cast<int>(index / 2), static_cast<int>(index % 2));
+        videoTileFrames_.append(tileFrame);
+
         connect(clickable, &ClickableVideoWidget::doubleClicked, this,
                 [this](ClickableVideoWidget* target) { toggleExpandVideo(target); });
+        connect(clickable, &ClickableVideoWidget::hoverChanged, tileFrame, [tileFrame](bool hovered) {
+            tileFrame->setProperty("hovered", hovered);
+            tileFrame->style()->unpolish(tileFrame);
+            tileFrame->style()->polish(tileFrame);
+            tileFrame->update();
+        });
     }
 }
 
 /**
- * @brief          디지털 트윈 demo 객체 목록을 실시간 객체 목록 테이블에 반영합니다.
- * @param objects  현재 맵에 살아있는 객체 목록
+ * @brief                  영상 출력 창과 스트림 설정을 세션 관리자에 연결합니다.
+ * @param receiverFactory  채널별 영상 수신기 생성 factory
  */
-void MainWindow::updateObjectListTable(QVector<DigitalTwinObject> objects) {
-    if (!objectListModel_) {
+void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory) {
+    if (streamSessionManager_) {
         return;
     }
 
-    objectListModel_->updateObjects(std::move(objects));
+    if (!receiverFactory) {
+        qWarning() << "[MainWindow] Stream receiver factory is not configured";
+        return;
+    }
+
+    streamSessionManager_ = new StreamSessionManager(std::move(receiverFactory), this);
+
+    connect(streamSessionManager_, &StreamSessionManager::loadingChanged, this, [this](int channelIndex, bool loading) {
+        if (channelIndex < 0 || channelIndex >= videoWidgets_.size()) {
+            qWarning() << "[MainWindow] Invalid loading channel index:" << channelIndex;
+            return;
+        }
+
+        auto* videoWidget = qobject_cast<ClickableVideoWidget*>(videoWidgets_[channelIndex]);
+
+        if (videoWidget) {
+            videoWidget->setLoading(loading);
+        }
+    });
+
+    connect(streamSessionManager_, &StreamSessionManager::errorOccurred, this,
+            [](int channelIndex, const QString& error) {
+                qWarning().noquote() << QStringLiteral("[Channel %1] %2").arg(channelIndex + 1).arg(error);
+            });
+
+    QVector<StreamOutputBinding> bindings;
+
+    const qsizetype streamCount = qMin(videoWidgets_.size(), streamConfigs_.size());
+
+    bindings.reserve(streamCount);
+
+    for (qsizetype index = 0; index < streamCount; ++index) {
+        QWidget* outputWidget = videoWidgets_[index];
+        const StreamConfig& config = streamConfigs_[index];
+
+        if (!outputWidget || !config.enabled) {
+            continue;
+        }
+
+        outputWidget->setAttribute(Qt::WA_NativeWindow);
+        outputWidget->setAttribute(Qt::WA_DontCreateNativeAncestors);
+
+        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(outputWidget)) {
+            videoWidget->setLoading(true);
+        }
+
+        StreamOutputBinding binding;
+        binding.config = config;
+        binding.outputWindowHandle = outputWidget->winId();
+
+        bindings.append(std::move(binding));
+    }
+
+    streamSessionManager_->configure(std::move(bindings));
 }
 
 /**
@@ -268,17 +345,26 @@ void MainWindow::expandVideo(QWidget* targetWidget) {
         return;
     }
 
-    for (auto* widget : videoWidgets_) {
-        if (widget && widget != targetWidget) {
-            widget->hide();
+    const qsizetype targetIndex = videoWidgets_.indexOf(targetWidget);
+
+    if (targetIndex < 0 || targetIndex >= videoTileFrames_.size()) {
+        qWarning() << "[MainWindow] Video tile frame is not configured";
+        return;
+    }
+
+    QFrame* targetFrame = videoTileFrames_[targetIndex];
+
+    for (auto* frame : videoTileFrames_) {
+        if (frame && frame != targetFrame) {
+            frame->hide();
         }
     }
 
-    grid->removeWidget(targetWidget);
-    grid->addWidget(targetWidget, 0, 0, 2, 2);
+    grid->removeWidget(targetFrame);
+    grid->addWidget(targetFrame, 0, 0, 2, 2);
 
-    targetWidget->show();
-    targetWidget->raise();
+    targetFrame->show();
+    targetFrame->raise();
 
     expandedWidget_ = targetWidget;
     updateCameraSelectionLabel(targetWidget);
@@ -295,20 +381,22 @@ void MainWindow::restoreVideoGrid() {
         return;
     }
 
-    for (auto* widget : videoWidgets_) {
-        if (widget) {
-            grid->removeWidget(widget);
+    for (auto* frame : videoTileFrames_) {
+        if (frame) {
+            grid->removeWidget(frame);
         }
     }
 
-    grid->addWidget(ui_->camView1, 0, 0);
-    grid->addWidget(ui_->camView2, 0, 1);
-    grid->addWidget(ui_->camView3, 1, 0);
-    grid->addWidget(ui_->camView4, 1, 1);
+    if (videoTileFrames_.size() == 4) {
+        grid->addWidget(videoTileFrames_[0], 0, 0);
+        grid->addWidget(videoTileFrames_[1], 0, 1);
+        grid->addWidget(videoTileFrames_[2], 1, 0);
+        grid->addWidget(videoTileFrames_[3], 1, 1);
+    }
 
-    for (auto* widget : videoWidgets_) {
-        if (widget) {
-            widget->show();
+    for (auto* frame : videoTileFrames_) {
+        if (frame) {
+            frame->show();
         }
     }
 
@@ -338,83 +426,4 @@ void MainWindow::updateCameraSelectionLabel(QWidget* targetWidget) {
     }
 
     ui_->cameraSelectLabel->setText(streamConfigs_[index].name);
-}
-
-/**
- * @brief   활성화된 스트림 설정을 기준으로 RTSP 수신기와 전용 worker 스레드를 생성합니다.
- */
-void MainWindow::setupReceivers() {
-    const qsizetype streamCount = qMin(videoWidgets_.size(), streamConfigs_.size());
-
-    for (qsizetype i = 0; i < streamCount; ++i) {
-        const auto& config = streamConfigs_[i];
-
-        if (!config.enabled) {
-            continue;
-        }
-
-        QWidget* outputWidget = videoWidgets_[i];
-
-        if (!outputWidget) {
-            continue;
-        }
-
-        outputWidget->setAttribute(Qt::WA_NativeWindow);
-        outputWidget->setAttribute(Qt::WA_DontCreateNativeAncestors);
-
-        const auto outputWindowHandle = static_cast<guintptr>(outputWidget->winId());
-        auto receiverThread = std::make_shared<QThread>();
-        receiverThread->setObjectName(QString("%1-worker").arg(config.cameraId));
-
-        auto receiver = streamReceiverFactory_->create(outputWindowHandle);
-        receiver->setUrl(config.url);
-        receiver->moveInternalObjectsToThread(receiverThread.get());
-
-        connect(receiver.get(), &StreamReceiver::statusChanged, this, [config](const QString& status) {
-            qDebug().noquote() << QString("[%1 Status]").arg(config.cameraId) << config.name << status;
-        });
-
-        connect(receiver.get(), &StreamReceiver::errorOccurred, this, [config](const QString& error) {
-            qDebug().noquote() << QString("[%1 Error]").arg(config.cameraId) << config.name << error;
-        });
-
-        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(outputWidget)) {
-            videoWidget->setLoading(true);
-
-            connect(receiver.get(), &StreamReceiver::loadingChanged, videoWidget, &ClickableVideoWidget::setLoading);
-        }
-
-        receiverThread->start();
-
-        receiverWorkers_.append({receiverThread, receiver});
-    }
-}
-
-/**
- * @brief   준비된 RTSP 수신기를 첫 번째 채널부터 순차적으로 시작합니다.
- */
-void MainWindow::startReceivers() { startReceiverSequentially(0); }
-
-/**
- * @brief                지정된 수신기를 시작하고 다음 수신기 시작을 예약합니다.
- * @param receiverIndex  시작할 수신기 인덱스
- */
-void MainWindow::startReceiverSequentially(int receiverIndex) {
-    if (receiverIndex >= receiverWorkers_.size()) {
-        qDebug().noquote() << "[MainWindow] All receivers requested";
-        return;
-    }
-
-    const auto receiver = receiverWorkers_[receiverIndex].receiver;
-
-    if (!receiver) {
-        QTimer::singleShot(0, this, [this, receiverIndex]() { startReceiverSequentially(receiverIndex + 1); });
-        return;
-    }
-
-    qDebug().noquote() << QString("[CAM-%1] start").arg(receiverIndex + 1);
-    QMetaObject::invokeMethod(receiver.get(), [receiver]() { receiver->start(); }, Qt::QueuedConnection);
-
-    QTimer::singleShot(receiverStartSpacingMsec, this,
-                       [this, receiverIndex]() { startReceiverSequentially(receiverIndex + 1); });
 }

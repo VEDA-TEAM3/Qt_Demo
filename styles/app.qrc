@@ -4,7 +4,6 @@
     </qresource>
     <qresource prefix="/icons">
         <file alias="human.png">../assets/icons/human.png</file>
-        <file alias="motor.png">../assets/icons/motor.png</file>
         <file alias="vehicle.png">../assets/icons/vehicle.png</file>
     </qresource>
 </RCC>
