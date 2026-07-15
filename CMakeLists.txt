@@ -79,13 +79,9 @@ qt_add_executable(Qtcctvclient
     src/model/EventLogGenerator.cpp
     include/model/StreamConfig.h
 
-    include/network/DemoDeviceStatusGateway.h
-    src/network/DemoDeviceStatusGateway.cpp
     include/network/DeviceStatusGateway.h
     src/network/DeviceStatusGateway.cpp
     include/network/DeviceStatusGatewayFactory.h
-    include/network/DemoDeviceStatusGatewayFactory.h
-    src/network/DemoDeviceStatusGatewayFactory.cpp
     include/network/MqttDeviceStatusGateway.h
     src/network/MqttDeviceStatusGateway.cpp
     include/network/MqttDeviceStatusGatewayFactory.h
@@ -115,6 +111,7 @@ qt_add_resources(Qtcctvclient "icon_resources"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/buzzer_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/config_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/danger_alert.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"

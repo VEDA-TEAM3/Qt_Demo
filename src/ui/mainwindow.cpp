@@ -1,9 +1,12 @@
 #include "ui/mainwindow.h"
 
+#include <algorithm>
+
 #include <QDebug>
 #include <QFrame>
 #include <QGridLayout>
 #include <QLabel>
+#include <QPixmap>
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QSizePolicy>
@@ -32,6 +35,9 @@
 
 namespace {
 constexpr int initialStreamStartDelayMsec = 1000;
+constexpr int requiredCctvChannelCount = 4;
+const QString normalStatusColor = QStringLiteral("#38e86a");
+const QString disconnectedStatusColor = QStringLiteral("#ff4b4b");
 }  // namespace
 
 /**
@@ -52,6 +58,7 @@ MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFact
 
     setupStreamConfigs();
     setupDashboardLayout();
+    setupTopBarStatuses();
     setupDashboardPanels();
     setupDashboardPanelCoordinator();
     setupDeviceStatusService();
@@ -78,7 +85,65 @@ void MainWindow::setupDashboardLayout() {
     ui_->titleLabel->setText(
         QStringLiteral("<span style=\"color:#a8d4ff;\">Wise AI</span>"
                        "<span style=\"color:#ffffff;\"> 기반 주차장 디지털 트윈 관제 시스템</span>"));
+
+    const QPixmap settingsIcon(QStringLiteral(":/icons/config_icon.png"));
+    ui_->settingsLabel->setText({});
+    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(32, 32), Qt::KeepAspectRatio,
+                                                      Qt::SmoothTransformation));
+    ui_->settingsLabel->setAlignment(Qt::AlignCenter);
+    ui_->settingsLabel->setFixedSize(72, 54);
+    ui_->settingsLabel->setToolTip(QStringLiteral("설정"));
     updateCameraSelectionLabel(nullptr);
+}
+
+/**
+ * @brief   상단 시스템 및 CCTV 연결 상태를 연결 대기 상태로 초기화합니다.
+ */
+void MainWindow::setupTopBarStatuses() {
+    updateSystemStatus(false);
+    streamChannelReady_.fill(false, requiredCctvChannelCount);
+    updateStreamConnectionStatus();
+}
+
+/**
+ * @brief            MQTT 프로토콜 연결 여부를 상단 시스템 상태에 반영합니다.
+ * @param connected  MQTT broker와 정상적으로 연결되었다면 true
+ */
+void MainWindow::updateSystemStatus(bool connected) {
+    setTopBarStatus(ui_->systemStatusLabel, QStringLiteral("시스템 상태"),
+                    connected ? QStringLiteral("● 정상") : QStringLiteral("● 연결 중"),
+                    connected ? normalStatusColor : disconnectedStatusColor);
+}
+
+/**
+ * @brief   네 CCTV 채널이 모두 첫 프레임을 수신했는지 상단 연결 상태에 반영합니다.
+ */
+void MainWindow::updateStreamConnectionStatus() {
+    const bool allStreamsReady = streamChannelReady_.size() == requiredCctvChannelCount &&
+                                 std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(),
+                                             [](bool ready) { return ready; });
+
+    setTopBarStatus(ui_->connectionStatusLabel, QStringLiteral("연결 상태"),
+                    allStreamsReady ? QStringLiteral("● 연결됨") : QStringLiteral("● 연결 중"),
+                    allStreamsReady ? normalStatusColor : disconnectedStatusColor);
+}
+
+/**
+ * @brief         상단 상태 QLabel에서 제목과 상태 문구를 서로 다른 색으로 표시합니다.
+ * @param label   갱신할 상단 상태 QLabel
+ * @param title   항상 기본 글자색으로 표시할 상태 제목
+ * @param status  상태 점을 포함한 상태 문구
+ * @param color   상태 문구에 적용할 RGB 색상 문자열
+ */
+void MainWindow::setTopBarStatus(QLabel* label, const QString& title, const QString& status, const QString& color) {
+    if (!label) {
+        return;
+    }
+
+    label->setTextFormat(Qt::RichText);
+    label->setText(QStringLiteral("<span style=\"color:#d5dfec;font-weight:800;\">%1</span>"
+                                  "&nbsp;&nbsp;<span style=\"color:%2;font-weight:800;\">%3</span>")
+                       .arg(title, color, status));
 }
 
 /**
@@ -136,6 +201,9 @@ void MainWindow::setupDeviceStatusService() {
     }
 
     deviceStatusService_ = std::make_shared<DeviceStatusService>(deviceStatusGatewayFactory_);
+
+    connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged, this,
+            &MainWindow::updateSystemStatus, Qt::QueuedConnection);
 
     if (dashboardPanelCoordinator_) {
         dashboardPanelCoordinator_->bindDeviceStatusService(deviceStatusService_.get());
@@ -279,12 +347,31 @@ void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory
         if (videoWidget) {
             videoWidget->setLoading(loading);
         }
+
+        if (loading && channelIndex < streamChannelReady_.size()) {
+            streamChannelReady_[channelIndex] = false;
+            updateStreamConnectionStatus();
+        }
     });
 
     connect(streamSessionManager_, &StreamSessionManager::errorOccurred, this,
-            [](int channelIndex, const QString& error) {
+            [this](int channelIndex, const QString& error) {
                 qWarning().noquote() << QStringLiteral("[Channel %1] %2").arg(channelIndex + 1).arg(error);
+
+                if (channelIndex >= 0 && channelIndex < streamChannelReady_.size()) {
+                    streamChannelReady_[channelIndex] = false;
+                    updateStreamConnectionStatus();
+                }
             });
+
+    connect(streamSessionManager_, &StreamSessionManager::firstFrameReceived, this, [this](int channelIndex) {
+        if (channelIndex < 0 || channelIndex >= streamChannelReady_.size()) {
+            return;
+        }
+
+        streamChannelReady_[channelIndex] = true;
+        updateStreamConnectionStatus();
+    });
 
     QVector<StreamOutputBinding> bindings;
 

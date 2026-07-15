@@ -78,14 +78,14 @@ QLabel#dateLabel {
 }
 
 QLabel#systemStatusLabel {
-    color: #38e86a;
+    color: #d5dfec;
     font-weight: 800;
     padding-left: 14px;
     border-left: 1px solid #2b4058;
 }
 
 QLabel#connectionStatusLabel {
-    color: #38e86a;
+    color: #d5dfec;
     font-weight: 800;
     padding-left: 14px;
     border-left: 1px solid #2b4058;
@@ -119,7 +119,7 @@ QLabel#settingsLabel {
     background-color: #13263c;
     border: 1px solid #476684;
     border-radius: 7px;
-    padding: 8px 12px;
+    padding: 0;
     font-weight: 800;
 }
 
@@ -178,12 +178,13 @@ QFrame#deviceChannelCard[feedbackHealth="unknown"] {
     border-color: #31475e;
 }
 
-QFrame#deviceChannelCard[sensorHealth="online"] {
-    border-color: #36d17c;
-}
-
+QFrame#deviceChannelCard[sensorHealth="unknown"],
 QFrame#deviceChannelCard[sensorHealth="offline"] {
     border-color: #ff5a5f;
+}
+
+QFrame#deviceChannelCard[sensorHealth="online"] {
+    border-color: #25527c;
 }
 
 QFrame#deviceChannelCard[feedbackHealth="failed"] {
@@ -194,20 +195,6 @@ QLabel#deviceChannelTitleLabel {
     color: #2ebcff;
     font-size: 12px;
     font-weight: 900;
-}
-
-QLabel#sensorHealthLabel {
-    color: #7f91a8;
-    font-size: 9px;
-    font-weight: 900;
-}
-
-QLabel#sensorHealthLabel[sensorHealth="online"] {
-    color: #5bff9d;
-}
-
-QLabel#sensorHealthLabel[sensorHealth="offline"] {
-    color: #ff686d;
 }
 
 QFrame#deviceStatusRow {

@@ -93,12 +93,7 @@ int pulseRepeatTicksForRiskLevel(DigitalTwinRiskLevel riskLevel) {
     return 0;
 }
 
-/**
- * @brief               두 객체 조합을 나타내는 안정적인 key를 생성합니다.
- * @param firstObject   첫 번째 객체
- * @param secondObject  두 번째 객체
- * @return              객체 순서와 무관한 pair key
- */
+
 /**
  * @brief               위험 단계에서 주의 단계로 낮아지는 전환인지 확인합니다.
  * @param previousRisk  이전 tick의 객체 쌍 위험 단계
@@ -109,6 +104,12 @@ bool isDangerToWarningDowngrade(DigitalTwinRiskLevel previousRisk, DigitalTwinRi
     return previousRisk == DigitalTwinRiskLevel::Danger && currentRisk == DigitalTwinRiskLevel::Warning;
 }
 
+/**
+ * @brief               두 객체 조합을 나타내는 안정적인 key를 생성합니다.
+ * @param firstObject   첫 번째 객체
+ * @param secondObject  두 번째 객체
+ * @return              객체 순서와 무관한 pair key
+ */
 QString pairKeyForObjects(const DigitalTwinObject& firstObject, const DigitalTwinObject& secondObject) {
     if (firstObject.objectId < secondObject.objectId) {
         return firstObject.objectId + QStringLiteral("|") + secondObject.objectId;

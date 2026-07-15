@@ -56,7 +56,7 @@ inline void apply(QMainWindow* window, UiMainWindow* ui) {
     window->setMinimumSize(1280, 720);
 
     ui->mainContentLayout->setContentsMargins(18, 0, 26, 14);
-    ui->topBarLayout->setContentsMargins(18, 0, 0, 0);
+    ui->topBarLayout->setContentsMargins(18, 0, 8, 0);
     ui->topSectionLayout->setContentsMargins(0, 0, 0, 0);
     ui->bottomSectionLayout->setContentsMargins(0, 0, 0, 0);
 

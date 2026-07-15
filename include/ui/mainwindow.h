@@ -15,6 +15,7 @@ class DeviceStatusService;
 class EventLogPanel;
 class ObjectListPanel;
 class QFrame;
+class QLabel;
 class QResizeEvent;
 class QShowEvent;
 class StreamReceiverFactory;
@@ -46,11 +47,15 @@ private:
     void setupDashboardPanels();
     void setupDashboardPanelCoordinator();
     void setupDeviceStatusService();
+    void setupTopBarStatuses();
     void setupStreamConfigs();
     void setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory);
     void setupVideoViewEvents();
 
     void updateDashboardAdaptiveSizes();
+    void updateSystemStatus(bool connected);
+    void updateStreamConnectionStatus();
+    void setTopBarStatus(QLabel* label, const QString& title, const QString& status, const QString& color);
 
     void toggleExpandVideo(QWidget* targetWidget);
     void expandVideo(QWidget* targetWidget);
@@ -66,6 +71,7 @@ private:
     QVector<QWidget*> videoWidgets_;
     QVector<QFrame*> videoTileFrames_;
     QVector<StreamConfig> streamConfigs_;
+    QVector<bool> streamChannelReady_;
 
     StreamSessionManager* streamSessionManager_ = nullptr;
     DashboardPanelCoordinator* dashboardPanelCoordinator_ = nullptr;

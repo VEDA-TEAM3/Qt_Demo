@@ -48,19 +48,6 @@ QString sensorHealthProperty(SensorHealth health) {
     return QStringLiteral("unknown");
 }
 
-QString sensorHealthText(SensorHealth health) {
-    switch (health) {
-        case SensorHealth::Online:
-            return QStringLiteral("HEALTH  ONLINE");
-        case SensorHealth::Offline:
-            return QStringLiteral("HEALTH  OFFLINE");
-        case SensorHealth::Unknown:
-            return QStringLiteral("HEALTH  UNKNOWN");
-    }
-
-    return QStringLiteral("HEALTH  UNKNOWN");
-}
-
 }  // namespace
 
 /**
@@ -166,16 +153,7 @@ QFrame* DeviceStatusPanel::createChannelCard(int channelIndex) {
     widgets.titleLabel =
         new QLabel(QStringLiteral("CH %1").arg(channelIndex + 1, 2, 10, QLatin1Char('0')), widgets.card);
     widgets.titleLabel->setObjectName(QStringLiteral("deviceChannelTitleLabel"));
-    widgets.healthLabel = new QLabel(QStringLiteral("HEALTH  UNKNOWN"), widgets.card);
-    widgets.healthLabel->setObjectName(QStringLiteral("sensorHealthLabel"));
-
-    auto* headerLayout = new QHBoxLayout();
-    headerLayout->setContentsMargins(0, 0, 0, 0);
-    headerLayout->setSpacing(6);
-    headerLayout->addWidget(widgets.titleLabel);
-    headerLayout->addStretch(1);
-    headerLayout->addWidget(widgets.healthLabel);
-    cardLayout->addLayout(headerLayout);
+    cardLayout->addWidget(widgets.titleLabel);
 
     widgets.ledSafeLabel = createStatusSegment({QStringLiteral("SAFE"), QStringLiteral("safe")});
     widgets.ledWarningLabel = createStatusSegment({QStringLiteral("WARNING"), QStringLiteral("warning")});
@@ -278,14 +256,6 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     const QString healthProperty = feedbackHealthProperty(status.feedbackHealth);
     const QString sensorProperty = sensorHealthProperty(status.sensorHealth);
 
-    widgets.healthLabel->setText(sensorHealthText(status.sensorHealth));
-
-    if (widgets.healthLabel->property("sensorHealth").toString() != sensorProperty) {
-        widgets.healthLabel->setProperty("sensorHealth", sensorProperty);
-        widgets.healthLabel->style()->unpolish(widgets.healthLabel);
-        widgets.healthLabel->style()->polish(widgets.healthLabel);
-    }
-
     if (widgets.card->property("sensorHealth").toString() != sensorProperty) {
         widgets.card->setProperty("sensorHealth", sensorProperty);
         widgets.card->style()->unpolish(widgets.card);
@@ -299,7 +269,8 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     }
 
     if (status.feedbackHealth == DeviceFeedbackHealth::Failed) {
-        widgets.card->setToolTip(QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
+        widgets.card->setToolTip(
+            QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
     } else if (status.feedbackHealth == DeviceFeedbackHealth::Confirmed) {
         widgets.card->setToolTip(QStringLiteral("장비 출력 피드백 확인됨"));
     } else {
