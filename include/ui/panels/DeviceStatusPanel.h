@@ -33,6 +33,7 @@ private:
     struct ChannelWidgets {
         QFrame* card = nullptr;
         QLabel* titleLabel = nullptr;
+        QLabel* healthLabel = nullptr;
         QLabel* ledSafeLabel = nullptr;
         QLabel* ledWarningLabel = nullptr;
         QLabel* ledDangerLabel = nullptr;

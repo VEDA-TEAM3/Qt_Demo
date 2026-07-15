@@ -1,24 +1,47 @@
 ## MQTT 장비 상태 연동 가이드
 
-현재 프로젝트는 `DemoDeviceStatusGateway`를 통해 가상 장비 상태를 전달하고 있습니다.
+현재 프로젝트는 `MqttDeviceStatusGateway`를 통해 MQTT/TLS 장비 상태와 센서 health를 전달합니다.
 
-실제 MQTT 연동 시에는 기존 서비스 로직을 수정하지 않고, `DeviceStatusGateway` 인터페이스를 구현하는 `MqttDeviceStatusGateway`를 추가하는 방식으로 진행합니다.
+`DemoDeviceStatusGateway`는 개발용 예제로 유지되며, 실행 시에는 `MqttDeviceStatusGatewayFactory`가 사용됩니다.
+
+### 현재 구독 토픽
+
+| 토픽 | 용도 | 채널 규칙 |
+| --- | --- | --- |
+| `veda/hw/+/status` | `mqtt_tls_hw_controller_async`의 HW 동작 결과 | `channelId` 1~4를 Qt 0~3으로 변환 |
+| `veda/hw/status` | `mqtt_tls_broker_server`의 HW 동작 결과 | `channelId` 0~3을 그대로 사용 |
+| `veda/ch/+/alive` | `MqttTopViewSink`의 retained LWT health | 토픽 채널 0~3을 그대로 사용 |
+
+Qt 화면은 채널별 `HEALTH ONLINE/OFFLINE/UNKNOWN`과 LED, 사이렌, 부저의 마지막 확인 동작 상태를 표시합니다.
+
+### 실행 환경 변수
+
+| 환경 변수 | 기본값 |
+| --- | --- |
+| `VEDA_MQTT_HOST` | `172.20.27.174` |
+| `VEDA_MQTT_PORT` | `8883` |
+| `VEDA_MQTT_CA_FILE` | `/etc/veda/certs/ca.crt` |
+| `VEDA_MQTT_CLIENT_ID` | 실행마다 생성되는 `qt-device-status-...` |
+
+TLS 인증서 검증은 비활성화하지 않습니다. Windows에서 실행할 때는 `VEDA_MQTT_CA_FILE`을 실제 CA 인증서 경로로 지정해야 합니다.
 
 ---
 
 ## 1. MQTT 연동 사양
 
-| 항목         | 값                     |
-| ---------- | --------------------- |
-| 구독 Topic   | `veda/hw/rpi1/status` |
-| QoS        | `1`                   |
-| Publish    | 사용하지 않음               |
-| Retain 메시지 | 수신 사양에 따라 처리          |
-| 채널 ID 범위   | `1 ~ 4`               |
-| Qt 채널 인덱스  | `channelId - 1`       |
-| MQTT 수신 처리 | 별도 스레드                |
+| 항목 | 값 |
+| --- | --- |
+| 구독 Topic | `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive` |
+| QoS | `1` |
+| Publish | 사용하지 않음 |
+| Retain 메시지 | `veda/ch/+/alive` health에 적용 |
+| HW 채널 ID | 컨트롤러 1~4, 중앙 브로커 0~3 |
+| 센서 채널 ID | LWT 토픽의 0~3 |
+| MQTT 수신 처리 | `DeviceStatusGateway` 전용 스레드 |
 
 ### 채널 변환
+
+`veda/hw/+/status` 컨트롤러 상태만 1-based 채널을 변환합니다.
 
 ```cpp
 const int channelIndex = channelId - 1;
@@ -33,7 +56,7 @@ const int channelIndex = channelId - 1;
 |                3 |                 2 |
 |                4 |                 3 |
 
-`channelId`가 `1 ~ 4` 범위를 벗어나면 프로토콜 오류로 처리해야 합니다.
+`veda/hw/status`와 `veda/ch/+/alive`는 0-based 채널을 그대로 사용합니다. 각 토픽 규칙의 범위를 벗어나면 프로토콜 오류로 처리합니다.
 
 ---
 
@@ -74,6 +97,8 @@ MQTT JSON Payload를 파싱한 후 변환해야 하는 프로젝트 내부 데�
 | 내부 상태               | 의미                 |
 | ------------------- | ------------------ |
 | `ControllerOnline`  | 제어기 온라인 알림         |
+| `SensorOnline`      | 센서 LWT online        |
+| `SensorOffline`     | 센서 LWT offline       |
 | `FeedbackConfirmed` | 장비 제어 결과 정상 확인     |
 | `FeedbackFailed`    | 장비 제어 결과 실패        |
 | `ProtocolError`     | JSON 또는 프로토콜 형식 오류 |
@@ -111,16 +136,14 @@ MQTT의 siren 필드는 코드 내부에서 beacon으로 사용합니다.
 
 [`src/network/DemoDeviceStatusGateway.cpp`](C:/Qtprojects/Qtcctvclient/src/network/DemoDeviceStatusGateway.cpp#L1)
 
-현재 가상 장비 상태 데이터가 생성되는 위치입니다.
-
-실제 MQTT 구현 시 이 클래스의 구조를 참고하여 다음 파일을 추가합니다.
+개발과 UI 확인에 사용할 수 있는 가상 장비 상태 구현입니다. 실제 실행 경로에는 다음 MQTT Gateway가 연결되어 있습니다.
 
 ```text
 include/network/MqttDeviceStatusGateway.h
 src/network/MqttDeviceStatusGateway.cpp
 ```
 
-필요하다면 Factory도 함께 추가합니다.
+Factory는 다음 파일에 구현되어 있습니다.
 
 ```text
 include/network/MqttDeviceStatusGatewayFactory.h
@@ -196,12 +219,6 @@ DeviceStatusReport::ControllerOnline
 현재는 다음 Factory를 생성합니다.
 
 ```cpp
-DemoDeviceStatusGatewayFactory
-```
-
-실제 MQTT 연동이 완료되면 다음 Factory로 교체합니다.
-
-```cpp
 MqttDeviceStatusGatewayFactory
 ```
 
@@ -213,7 +230,7 @@ MqttDeviceStatusGatewayFactory
 
 [`CMakeLists.txt`](C:/Qtprojects/Qtcctvclient/CMakeLists.txt#L1)
 
-다음 항목을 빌드 대상에 추가해야 합니다.
+다음 항목이 빌드 대상에 추가되어 있습니다.
 
 * MQTT 라이브러리
 * `MqttDeviceStatusGateway.h`
@@ -221,7 +238,7 @@ MqttDeviceStatusGatewayFactory
 * MQTT Gateway Factory 파일
 * 필요한 Qt MQTT 모듈 또는 외부 MQTT 라이브러리
 
-Qt MQTT 모듈을 사용하는 경우의 예시는 다음과 같습니다.
+Qt MQTT 모듈 연결은 다음과 같습니다.
 
 ```cmake
 find_package(Qt6 REQUIRED COMPONENTS Core Mqtt)
@@ -233,7 +250,7 @@ target_link_libraries(Qtcctvclient
 )
 ```
 
-소스 파일도 빌드 대상에 추가해야 합니다.
+Gateway 소스 파일도 `Qtcctvclient` 대상에 포함되어 있습니다.
 
 ```cmake
 target_sources(Qtcctvclient
@@ -349,7 +366,7 @@ detail == "rpi_controller_online"
 
 ```mermaid
 flowchart TD
-    A[MQTT Broker 연결] --> B[veda/hw/rpi1/status 구독]
+    A[MQTT Broker 연결] --> B[HW status와 sensor alive 구독]
     B --> C[MQTT 메시지 수신]
     C --> D{JSON 파싱 성공?}
 
@@ -424,7 +441,7 @@ MQTT 담당자가 구현해야 하는 범위는 다음과 같습니다.
 
 * MQTT Broker 연결
 * 연결 종료 및 재연결 처리
-* `veda/hw/rpi1/status` Topic 구독
+* `veda/hw/+/status`, `veda/hw/status`, `veda/ch/+/alive` Topic 구독
 * QoS 1 적용
 * MQTT Payload JSON 파싱
 * `channelId` 검증 및 인덱스 변환
@@ -436,7 +453,7 @@ MQTT 담당자가 구현해야 하는 범위는 다음과 같습니다.
 * 별도 스레드에서 안전하게 Report 전달
 * CMake 빌드 설정 추가
 * `MqttDeviceStatusGatewayFactory` 구현
-* `main.cpp`의 Factory 교체
+* `main.cpp`에 `MqttDeviceStatusGatewayFactory` 연결
 
 MQTT 담당자가 수정하지 않아야 하는 범위:
 
@@ -463,7 +480,7 @@ MQTT 담당자가 수정하지 않아야 하는 범위:
 * 비정상 JSON의 `ProtocolError` 처리
 * MQTT 스레드에서 UI 직접 접근 없음
 * Demo Gateway와 동일한 인터페이스 유지
-* `main.cpp`에서 Factory 교체만으로 실행 가능
+* `main.cpp`에서 MQTT Factory로 실행
 * CMake에서 MQTT 라이브러리 및 신규 소스 정상 빌드
 
 ---
@@ -471,7 +488,7 @@ MQTT 담당자가 수정하지 않아야 하는 범위:
 ## 8. 핵심 규칙 요약
 
 ```text
-Topic: veda/hw/rpi1/status
+Topics: veda/hw/+/status, veda/hw/status, veda/ch/+/alive
 QoS: 1
 Publish: 없음
 

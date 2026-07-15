@@ -8,7 +8,7 @@
 #include <memory>
 #include <utility>
 
-#include "network/DemoDeviceStatusGatewayFactory.h"
+#include "network/MqttDeviceStatusGatewayFactory.h"
 #include "ui/mainwindow.h"
 #include "ui/panels/DefaultDashboardPanelFactory.h"
 #include "video/GstStreamReceiverFactory.h"
@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
 
         {
             auto streamReceiverFactory = std::make_shared<GstStreamReceiverFactory>();
-            auto deviceStatusGatewayFactory = std::make_shared<DemoDeviceStatusGatewayFactory>();
+            auto deviceStatusGatewayFactory = std::make_shared<MqttDeviceStatusGatewayFactory>();
             auto dashboardPanelFactory = std::make_shared<DefaultDashboardPanelFactory>();
             MainWindow window(std::move(streamReceiverFactory), std::move(deviceStatusGatewayFactory),
                               std::move(dashboardPanelFactory));

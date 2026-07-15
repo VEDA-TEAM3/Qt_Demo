@@ -20,8 +20,7 @@ class DeviceStatusService final : public QObject {
     Q_OBJECT
 
 public:
-    explicit DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFactory> gatewayFactory,
-                                 QObject* parent = nullptr);
+    explicit DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFactory> gatewayFactory, QObject* parent = nullptr);
     ~DeviceStatusService() override;
 
     void start();
@@ -36,7 +35,9 @@ signals:
 
 private:
     void setupGateway();
+    void handleBrokerConnection(bool connected);
     void handleReport(DeviceStatusReport report);
+    void handleSensorHealth(const DeviceStatusReport& report, SensorHealth health);
     void handleConfirmedFeedback(const DeviceStatusReport& report);
     void handleFailedFeedback(const DeviceStatusReport& report);
     void queueChannelStatus(DeviceChannelStatus status);
@@ -49,7 +50,7 @@ private:
     std::shared_ptr<DeviceStatusGatewayFactory> gatewayFactory_;
     std::shared_ptr<QThread> gatewayThread_;
     std::shared_ptr<DeviceStatusGateway> gateway_;
-    QMap<int, DeviceChannelStatus> confirmedStatuses_;
+    QMap<int, DeviceChannelStatus> channelStatuses_;
     QMap<int, DeviceChannelStatus> pendingStatuses_;
     QSet<QString> recentReportKeys_;
     QQueue<QString> reportKeyOrder_;

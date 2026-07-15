@@ -178,6 +178,14 @@ QFrame#deviceChannelCard[feedbackHealth="unknown"] {
     border-color: #31475e;
 }
 
+QFrame#deviceChannelCard[sensorHealth="online"] {
+    border-color: #36d17c;
+}
+
+QFrame#deviceChannelCard[sensorHealth="offline"] {
+    border-color: #ff5a5f;
+}
+
 QFrame#deviceChannelCard[feedbackHealth="failed"] {
     border-color: #ff5a5f;
 }
@@ -186,6 +194,20 @@ QLabel#deviceChannelTitleLabel {
     color: #2ebcff;
     font-size: 12px;
     font-weight: 900;
+}
+
+QLabel#sensorHealthLabel {
+    color: #7f91a8;
+    font-size: 9px;
+    font-weight: 900;
+}
+
+QLabel#sensorHealthLabel[sensorHealth="online"] {
+    color: #5bff9d;
+}
+
+QLabel#sensorHealthLabel[sensorHealth="offline"] {
+    color: #ff686d;
 }
 
 QFrame#deviceStatusRow {

@@ -17,7 +17,8 @@ bool statusesEqual(const DeviceChannelStatus& left, const DeviceChannelStatus& r
     return left.channelIndex == right.channelIndex && left.outputs.ledRed == right.outputs.ledRed &&
            left.outputs.ledYellow == right.outputs.ledYellow && left.outputs.ledGreen == right.outputs.ledGreen &&
            left.outputs.beacon == right.outputs.beacon && left.outputs.buzzer == right.outputs.buzzer &&
-           left.hasConfirmedState == right.hasConfirmedState && left.feedbackHealth == right.feedbackHealth &&
+           left.hasConfirmedState == right.hasConfirmedState && left.sensorHealth == right.sensorHealth &&
+           left.feedbackHealth == right.feedbackHealth && left.sensorDetail == right.sensorDetail &&
            left.detail == right.detail && left.confirmedSourceTimestamp == right.confirmedSourceTimestamp;
 }
 
@@ -32,6 +33,32 @@ QString feedbackHealthProperty(DeviceFeedbackHealth health) {
     }
 
     return QStringLiteral("unknown");
+}
+
+QString sensorHealthProperty(SensorHealth health) {
+    switch (health) {
+        case SensorHealth::Online:
+            return QStringLiteral("online");
+        case SensorHealth::Offline:
+            return QStringLiteral("offline");
+        case SensorHealth::Unknown:
+            return QStringLiteral("unknown");
+    }
+
+    return QStringLiteral("unknown");
+}
+
+QString sensorHealthText(SensorHealth health) {
+    switch (health) {
+        case SensorHealth::Online:
+            return QStringLiteral("HEALTH  ONLINE");
+        case SensorHealth::Offline:
+            return QStringLiteral("HEALTH  OFFLINE");
+        case SensorHealth::Unknown:
+            return QStringLiteral("HEALTH  UNKNOWN");
+    }
+
+    return QStringLiteral("HEALTH  UNKNOWN");
 }
 
 }  // namespace
@@ -139,7 +166,16 @@ QFrame* DeviceStatusPanel::createChannelCard(int channelIndex) {
     widgets.titleLabel =
         new QLabel(QStringLiteral("CH %1").arg(channelIndex + 1, 2, 10, QLatin1Char('0')), widgets.card);
     widgets.titleLabel->setObjectName(QStringLiteral("deviceChannelTitleLabel"));
-    cardLayout->addWidget(widgets.titleLabel);
+    widgets.healthLabel = new QLabel(QStringLiteral("HEALTH  UNKNOWN"), widgets.card);
+    widgets.healthLabel->setObjectName(QStringLiteral("sensorHealthLabel"));
+
+    auto* headerLayout = new QHBoxLayout();
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(6);
+    headerLayout->addWidget(widgets.titleLabel);
+    headerLayout->addStretch(1);
+    headerLayout->addWidget(widgets.healthLabel);
+    cardLayout->addLayout(headerLayout);
 
     widgets.ledSafeLabel = createStatusSegment({QStringLiteral("SAFE"), QStringLiteral("safe")});
     widgets.ledWarningLabel = createStatusSegment({QStringLiteral("WARNING"), QStringLiteral("warning")});
@@ -240,6 +276,21 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     setSegmentActive(widgets.buzzerOnLabel, outputsKnown && status.outputs.buzzer);
 
     const QString healthProperty = feedbackHealthProperty(status.feedbackHealth);
+    const QString sensorProperty = sensorHealthProperty(status.sensorHealth);
+
+    widgets.healthLabel->setText(sensorHealthText(status.sensorHealth));
+
+    if (widgets.healthLabel->property("sensorHealth").toString() != sensorProperty) {
+        widgets.healthLabel->setProperty("sensorHealth", sensorProperty);
+        widgets.healthLabel->style()->unpolish(widgets.healthLabel);
+        widgets.healthLabel->style()->polish(widgets.healthLabel);
+    }
+
+    if (widgets.card->property("sensorHealth").toString() != sensorProperty) {
+        widgets.card->setProperty("sensorHealth", sensorProperty);
+        widgets.card->style()->unpolish(widgets.card);
+        widgets.card->style()->polish(widgets.card);
+    }
 
     if (widgets.card->property("feedbackHealth").toString() != healthProperty) {
         widgets.card->setProperty("feedbackHealth", healthProperty);
@@ -248,8 +299,7 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     }
 
     if (status.feedbackHealth == DeviceFeedbackHealth::Failed) {
-        widgets.card->setToolTip(
-            QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
+        widgets.card->setToolTip(QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
     } else if (status.feedbackHealth == DeviceFeedbackHealth::Confirmed) {
         widgets.card->setToolTip(QStringLiteral("장비 출력 피드백 확인됨"));
     } else {

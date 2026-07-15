@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(ProcessorCount)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Mqtt Network Widgets)
 
 set(GSTREAMER_ROOT "C:/Program Files/gstreamer/1.0/mingw_x86_64")
 
@@ -86,6 +86,10 @@ qt_add_executable(Qtcctvclient
     include/network/DeviceStatusGatewayFactory.h
     include/network/DemoDeviceStatusGatewayFactory.h
     src/network/DemoDeviceStatusGatewayFactory.cpp
+    include/network/MqttDeviceStatusGateway.h
+    src/network/MqttDeviceStatusGateway.cpp
+    include/network/MqttDeviceStatusGatewayFactory.h
+    src/network/MqttDeviceStatusGatewayFactory.cpp
     include/network/DeviceStatusService.h
     src/network/DeviceStatusService.cpp
     include/network/rtsp.h
@@ -196,6 +200,8 @@ target_link_directories(Qtcctvclient PRIVATE
 
 target_link_libraries(Qtcctvclient PRIVATE
     Qt6::Widgets
+    Qt6::Mqtt
+    Qt6::Network
 
     gstreamer-1.0
     gstrtsp-1.0

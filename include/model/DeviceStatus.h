@@ -10,6 +10,12 @@ enum class DeviceFeedbackHealth {
     Failed,
 };
 
+enum class SensorHealth {
+    Unknown,
+    Online,
+    Offline,
+};
+
 struct DeviceOutputState {
     bool ledRed = false;
     bool ledYellow = false;
@@ -22,7 +28,9 @@ struct DeviceChannelStatus {
     int channelIndex = 0;
     DeviceOutputState outputs;
     bool hasConfirmedState = false;
+    SensorHealth sensorHealth = SensorHealth::Unknown;
     DeviceFeedbackHealth feedbackHealth = DeviceFeedbackHealth::Unknown;
+    QString sensorDetail;
     QString detail;
     qint64 confirmedSourceTimestamp = 0;
 };

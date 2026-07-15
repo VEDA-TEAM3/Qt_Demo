@@ -112,7 +112,24 @@ void DeviceStatusService::setupGateway() {
     connect(gateway_.get(), &DeviceStatusGateway::reportReceived, this, &DeviceStatusService::handleReport,
             Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::brokerConnectionChanged, this,
-            &DeviceStatusService::brokerConnectionChanged, Qt::QueuedConnection);
+            &DeviceStatusService::handleBrokerConnection, Qt::QueuedConnection);
+}
+
+void DeviceStatusService::handleBrokerConnection(bool connected) {
+    emit brokerConnectionChanged(connected);
+
+    if (connected) {
+        return;
+    }
+
+    for (int channelIndex = 0; channelIndex < deviceChannelCount; ++channelIndex) {
+        DeviceChannelStatus status = channelStatuses_.value(channelIndex);
+        status.channelIndex = channelIndex;
+        status.sensorHealth = SensorHealth::Unknown;
+        status.sensorDetail = QStringLiteral("broker_disconnected");
+        channelStatuses_.insert(channelIndex, status);
+        queueChannelStatus(std::move(status));
+    }
 }
 
 /**
@@ -128,6 +145,12 @@ void DeviceStatusService::handleReport(DeviceStatusReport report) {
         case DeviceStatusReportType::ControllerOnline:
             emit controllerOnlineChanged(true, report.node);
             return;
+        case DeviceStatusReportType::SensorOnline:
+            handleSensorHealth(report, SensorHealth::Online);
+            return;
+        case DeviceStatusReportType::SensorOffline:
+            handleSensorHealth(report, SensorHealth::Offline);
+            return;
         case DeviceStatusReportType::FeedbackConfirmed:
             handleConfirmedFeedback(report);
             return;
@@ -140,6 +163,21 @@ void DeviceStatusService::handleReport(DeviceStatusReport report) {
     }
 }
 
+void DeviceStatusService::handleSensorHealth(const DeviceStatusReport& report, SensorHealth health) {
+    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount) {
+        emit protocolError(QStringLiteral("Invalid sensor health channel"));
+        return;
+    }
+
+    DeviceChannelStatus status = channelStatuses_.value(report.channelIndex);
+    status.channelIndex = report.channelIndex;
+    status.sensorHealth = health;
+    status.sensorDetail = report.detail;
+
+    channelStatuses_.insert(status.channelIndex, status);
+    queueChannelStatus(std::move(status));
+}
+
 /**
  * @brief         성공적으로 확인된 실제 HW 출력만 마지막 확정 상태로 저장합니다.
  * @param report  state가 검증된 성공 피드백 보고
@@ -150,7 +188,7 @@ void DeviceStatusService::handleConfirmedFeedback(const DeviceStatusReport& repo
         return;
     }
 
-    DeviceChannelStatus status;
+    DeviceChannelStatus status = channelStatuses_.value(report.channelIndex);
     status.channelIndex = report.channelIndex;
     status.outputs = report.outputs;
     status.hasConfirmedState = true;
@@ -158,7 +196,7 @@ void DeviceStatusService::handleConfirmedFeedback(const DeviceStatusReport& repo
     status.detail = report.detail;
     status.confirmedSourceTimestamp = report.sourceTimestamp;
 
-    confirmedStatuses_.insert(status.channelIndex, status);
+    channelStatuses_.insert(status.channelIndex, status);
     queueChannelStatus(std::move(status));
 }
 
@@ -172,11 +210,12 @@ void DeviceStatusService::handleFailedFeedback(const DeviceStatusReport& report)
         return;
     }
 
-    DeviceChannelStatus status = confirmedStatuses_.value(report.channelIndex);
+    DeviceChannelStatus status = channelStatuses_.value(report.channelIndex);
     status.channelIndex = report.channelIndex;
     status.feedbackHealth = DeviceFeedbackHealth::Failed;
     status.detail = report.detail;
 
+    channelStatuses_.insert(status.channelIndex, status);
     queueChannelStatus(std::move(status));
     emit feedbackFailed(report.channelIndex, report.detail);
 }
