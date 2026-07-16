@@ -93,12 +93,7 @@ int pulseRepeatTicksForRiskLevel(DigitalTwinRiskLevel riskLevel) {
     return 0;
 }
 
-/**
- * @brief               두 객체 조합을 나타내는 안정적인 key를 생성합니다.
- * @param firstObject   첫 번째 객체
- * @param secondObject  두 번째 객체
- * @return              객체 순서와 무관한 pair key
- */
+
 /**
  * @brief               위험 단계에서 주의 단계로 낮아지는 전환인지 확인합니다.
  * @param previousRisk  이전 tick의 객체 쌍 위험 단계
@@ -109,6 +104,12 @@ bool isDangerToWarningDowngrade(DigitalTwinRiskLevel previousRisk, DigitalTwinRi
     return previousRisk == DigitalTwinRiskLevel::Danger && currentRisk == DigitalTwinRiskLevel::Warning;
 }
 
+/**
+ * @brief               두 객체 조합을 나타내는 안정적인 key를 생성합니다.
+ * @param firstObject   첫 번째 객체
+ * @param secondObject  두 번째 객체
+ * @return              객체 순서와 무관한 pair key
+ */
 QString pairKeyForObjects(const DigitalTwinObject& firstObject, const DigitalTwinObject& secondObject) {
     if (firstObject.objectId < secondObject.objectId) {
         return firstObject.objectId + QStringLiteral("|") + secondObject.objectId;
@@ -172,7 +173,7 @@ void DigitalTwinSimulationWorker::start() {
     ensureTimer();
     setupDemoObjects();
     updateRiskLevels();
-    emitCurrentObjects();
+    emitCurrentSnapshot();
 
     if (!updateTimer_->isActive()) {
         updateTimer_->start();
@@ -185,7 +186,6 @@ void DigitalTwinSimulationWorker::start() {
 void DigitalTwinSimulationWorker::stop() {
     if (updateTimer_) {
         updateTimer_->stop();
-        updateTimer_.reset();
     }
 }
 
@@ -200,7 +200,7 @@ void DigitalTwinSimulationWorker::updateObjects() {
     removeExitedObjects();
     spawnObjectIfNeeded();
     updateRiskLevels();
-    emitCurrentObjects();
+    emitCurrentSnapshot();
 }
 
 /**
@@ -221,11 +221,11 @@ void DigitalTwinSimulationWorker::ensureTimer() {
         return;
     }
 
-    updateTimer_ = std::make_shared<QTimer>();
+    updateTimer_ = new QTimer(this);
     updateTimer_->setInterval(updateIntervalMsec);
     updateTimer_->setTimerType(Qt::PreciseTimer);
 
-    connect(updateTimer_.get(), &QTimer::timeout, this, &DigitalTwinSimulationWorker::updateObjects);
+    connect(updateTimer_, &QTimer::timeout, this, &DigitalTwinSimulationWorker::updateObjects);
 }
 
 /**
@@ -310,17 +310,28 @@ void DigitalTwinSimulationWorker::updateRiskLevels() {
     }
 
     QHash<QString, DigitalTwinRiskLevel> currentPairRiskLevels;
+    const qsizetype objectCount = objects_.size();
+    const qsizetype maximumPairCount = objectCount > 1 ? objectCount * (objectCount - 1) / 2 : 0;
+    currentPairRiskLevels.reserve(maximumPairCount);
+    pairRiskStates_.clear();
+    pairRiskStates_.reserve(maximumPairCount);
 
     for (int firstIndex = 0; firstIndex < objects_.size(); ++firstIndex) {
         for (int secondIndex = firstIndex + 1; secondIndex < objects_.size(); ++secondIndex) {
             const DigitalTwinRiskLevel pairRiskLevel =
                 riskPolicy_->riskLevelForObjects(objects_[firstIndex], objects_[secondIndex]);
-            const QString pairKey = pairKeyForObjects(objects_[firstIndex], objects_[secondIndex]);
-            currentPairRiskLevels.insert(pairKey, pairRiskLevel);
-
             if (pairRiskLevel == DigitalTwinRiskLevel::Normal) {
                 continue;
             }
+
+            const QString pairKey = pairKeyForObjects(objects_[firstIndex], objects_[secondIndex]);
+            currentPairRiskLevels.insert(pairKey, pairRiskLevel);
+
+            DigitalTwinPairRiskState pairRiskState;
+            pairRiskState.firstObjectId = objects_[firstIndex].objectId;
+            pairRiskState.secondObjectId = objects_[secondIndex].objectId;
+            pairRiskState.riskLevel = pairRiskLevel;
+            pairRiskStates_.append(std::move(pairRiskState));
 
             if (riskPriority(pairRiskLevel) > riskPriority(objects_[firstIndex].riskLevel)) {
                 objects_[firstIndex].riskLevel = pairRiskLevel;
@@ -357,6 +368,11 @@ void DigitalTwinSimulationWorker::updateRiskLevels() {
 }
 
 /**
- * @brief   최신 객체 상태 목록을 UI 스레드로 전달합니다.
+ * @brief   최신 객체와 객체 쌍 위험 상태를 하나의 스냅샷으로 UI 스레드에 전달합니다.
  */
-void DigitalTwinSimulationWorker::emitCurrentObjects() { emit objectsUpdated(objects_); }
+void DigitalTwinSimulationWorker::emitCurrentSnapshot() {
+    DigitalTwinSnapshot snapshot;
+    snapshot.objects = objects_;
+    snapshot.pairRiskStates = pairRiskStates_;
+    emit snapshotUpdated(std::move(snapshot));
+}

@@ -1,0 +1,30 @@
+#pragma once
+
+#include <QVector>
+#include <QWidget>
+
+#include "model/EventLogEntry.h"
+
+class EventLogTableModel;
+class QResizeEvent;
+class QTableView;
+
+class EventLogPanel final : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit EventLogPanel(QWidget* parent = nullptr);
+
+    void prependEntry(const EventLogEntry& entry);
+    void prependEntries(QVector<EventLogEntry> entries);
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
+private:
+    void setupUi();
+    void resizeColumns();
+
+    EventLogTableModel* model_ = nullptr;
+    QTableView* table_ = nullptr;
+};

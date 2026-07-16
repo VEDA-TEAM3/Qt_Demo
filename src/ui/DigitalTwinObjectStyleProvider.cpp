@@ -13,8 +13,6 @@ QString iconPathForObject(const DigitalTwinObject& object) {
                 return QStringLiteral(":/icons/vehicle_danger.png");
             case DigitalTwinObjectType::Pedestrian:
                 return QStringLiteral(":/icons/human_danger.png");
-            case DigitalTwinObjectType::Motorcycle:
-                return QStringLiteral(":/icons/motor_danger.png");
         }
     }
 
@@ -24,8 +22,6 @@ QString iconPathForObject(const DigitalTwinObject& object) {
                 return QStringLiteral(":/icons/vehicle_warning.png");
             case DigitalTwinObjectType::Pedestrian:
                 return QStringLiteral(":/icons/human_warning.png");
-            case DigitalTwinObjectType::Motorcycle:
-                return QStringLiteral(":/icons/motor_warning.png");
         }
     }
 
@@ -34,8 +30,6 @@ QString iconPathForObject(const DigitalTwinObject& object) {
             return QStringLiteral(":/icons/vehicle.png");
         case DigitalTwinObjectType::Pedestrian:
             return QStringLiteral(":/icons/human.png");
-        case DigitalTwinObjectType::Motorcycle:
-            return QStringLiteral(":/icons/motor.png");
     }
 
     return QStringLiteral(":/icons/vehicle.png");
@@ -52,8 +46,6 @@ QSize iconSizeForType(DigitalTwinObjectType objectType) {
             return QSize(92, 92);
         case DigitalTwinObjectType::Pedestrian:
             return QSize(62, 62);
-        case DigitalTwinObjectType::Motorcycle:
-            return QSize(69, 69);
     }
 
     return QSize(44, 44);

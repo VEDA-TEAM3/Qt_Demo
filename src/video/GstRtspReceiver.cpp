@@ -3,23 +3,34 @@
 #include <gst/rtsp/gstrtsptransport.h>
 #include <gst/video/videooverlay.h>
 
+#include <QByteArray>
 #include <QDebug>
 #include <QMetaObject>
 #include <QThread>
+#include <QTimer>
 #include <QUrl>
 #include <algorithm>
 #include <cstring>
 
 namespace {
 constexpr int busPollIntervalMsec = 200;
-constexpr int rtspLatencyMsec = 2000;
-constexpr int initialPacketTimeoutMsec = 5000;
-constexpr int initialFrameTimeoutMsec = 5000;
-constexpr int maxReconnectDelayMsec = 30000;
+constexpr int rtspLatencyMsec = 2500;
+constexpr int initialPacketTimeoutMsec = 10000;
+constexpr int initialFrameTimeoutMsec = 10000;
+
+constexpr int maxReconnectDelayMsec = 5000;
 constexpr int authenticationFailureReconnectDelayMsec = 120000;
-constexpr int stallTimeoutMsec = 10000;
-constexpr guint udpBufferSizeBytes = 1024 * 1024;
+constexpr int stallTimeoutMsec = 20000;
+constexpr guint udpBufferSizeBytes = 4 * 1024 * 1024;
+
+constexpr int decodeQueueMaxBuffers = 12;
+constexpr qint64 decodeQueueMaxTimeNsec = 400LL * 1000 * 1000;
+
+constexpr int renderQueueMaxBuffers = 6;
+constexpr qint64 renderQueueMaxTimeNsec = 200LL * 1000 * 1000;
+
 constexpr qint64 minimumLoadingMsec = 700;
+constexpr int reconnectSpreadMsec = 3000;
 
 /**
  * @brief             지정한 GStreamer element factory가 설치되어 있는지 확인합니다.
@@ -158,12 +169,14 @@ bool isAuthenticationFailure(const QString& errorText) {
  */
 GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, QObject* parent)
     : StreamReceiver(parent), outputWindowHandle_(outputWindowHandle) {
-    busTimer_.setTimerType(Qt::PreciseTimer);
-    reconnectTimer_.setSingleShot(true);
+    busTimer_ = new QTimer(this);
+    reconnectTimer_ = new QTimer(this);
+    busTimer_->setTimerType(Qt::PreciseTimer);
+    reconnectTimer_->setSingleShot(true);
 
-    connect(&busTimer_, &QTimer::timeout, this, &GstRtspReceiver::pollBus);
+    connect(busTimer_, &QTimer::timeout, this, &GstRtspReceiver::pollBus);
 
-    connect(&reconnectTimer_, &QTimer::timeout, this, &GstRtspReceiver::startPipeline);
+    connect(reconnectTimer_, &QTimer::timeout, this, &GstRtspReceiver::startPipeline);
 }
 
 /**
@@ -178,7 +191,7 @@ GstRtspReceiver::~GstRtspReceiver() { stop(); }
 void GstRtspReceiver::setUrl(const QString& url) { url_ = url.trimmed(); }
 
 /**
- * @brief        수신기 본체와 내부 타이머를 지정한 worker 스레드로 이동합니다.
+ * @brief        수신기 본체와 자식 타이머를 지정한 worker 스레드로 이동합니다.
  * @param thread  이동 대상 QThread
  */
 void GstRtspReceiver::moveInternalObjectsToThread(QThread* thread) {
@@ -186,19 +199,24 @@ void GstRtspReceiver::moveInternalObjectsToThread(QThread* thread) {
         return;
     }
 
-    busTimer_.moveToThread(thread);
-    reconnectTimer_.moveToThread(thread);
-    moveToThread(thread);
+    if (QThread::currentThread() != this->thread()) {
+        qWarning() << "[GstRtspReceiver] moveToThread must be called from the receiver's current thread";
+        return;
+    }
+
+    if (!moveToThread(thread)) {
+        qWarning() << "[GstRtspReceiver] Failed to move receiver to target thread";
+    }
 }
 
 /**
  * @brief   수동 정지 상태를 해제하고 pipeline 시작을 요청합니다.
  */
 void GstRtspReceiver::start() {
-    manualStop_ = false;
+    manualStop_.store(false, std::memory_order_release);
     reconnectAttempts_ = 0;
 
-    reconnectTimer_.stop();
+    reconnectTimer_->stop();
 
     startPipeline();
 }
@@ -207,7 +225,7 @@ void GstRtspReceiver::start() {
  * @brief   rtspsrc와 영상 처리 chain을 구성하고 PLAYING 상태로 전환합니다.
  */
 void GstRtspReceiver::startPipeline() {
-    if (manualStop_) {
+    if (manualStop_.load(std::memory_order_acquire)) {
         return;
     }
 
@@ -232,13 +250,18 @@ void GstRtspReceiver::startPipeline() {
 
     firstAsyncDoneReported_ = false;
     firstFrameReported_ = false;
-    videoPadLinked_ = false;
-    teardownInProgress_ = false;
+    videoPadLinked_.store(false, std::memory_order_release);
+    teardownInProgress_.store(false, std::memory_order_release);
+
     gotAnyPacket_.store(false, std::memory_order_relaxed);
     gotAnyFrame_.store(false, std::memory_order_relaxed);
+
     const gint64 startTimeUsec = g_get_monotonic_time();
+
+    firstPacketTimeUsec_.store(0, std::memory_order_relaxed);
     lastPacketTimeUsec_.store(startTimeUsec, std::memory_order_relaxed);
     lastFrameTimeUsec_.store(startTimeUsec, std::memory_order_relaxed);
+
     startupTimer_.restart();
     emit loadingChanged(true);
 
@@ -254,12 +277,18 @@ void GstRtspReceiver::startPipeline() {
         QString(
             "rtph264depay name=depay request-keyframe=true wait-for-keyframe=true ! "
             "h264parse config-interval=-1 ! "
-            "queue name=decodequeue max-size-buffers=90 max-size-bytes=0 max-size-time=3000000000 ! "
+            "queue name=decodequeue silent=true max-size-buffers=%2 max-size-bytes=0 max-size-time=%3 ! "
             "%1 ! "
-            "queue name=renderqueue leaky=downstream max-size-buffers=4 max-size-bytes=0 max-size-time=0 ! "
-            "identity name=framewatch silent=true ! "
-            "d3d11videosink name=videosink force-aspect-ratio=true enable-last-sample=false sync=false async=false")
-            .arg(decoderChain());
+            "queue name=renderqueue silent=true leaky=downstream max-size-buffers=%4 max-size-bytes=0 "
+            "max-size-time=%5 ! "
+            "identity name=framewatch silent=true signal-handoffs=false ! "
+            "d3d11videosink name=videosink force-aspect-ratio=true enable-last-sample=false qos=false "
+            "sync=false async=false")
+            .arg(decoderChain())
+            .arg(decodeQueueMaxBuffers)
+            .arg(decodeQueueMaxTimeNsec)
+            .arg(renderQueueMaxBuffers)
+            .arg(renderQueueMaxTimeNsec);
 
     qDebug().noquote() << "[GstRtspReceiver] Manual RTSP pipeline:" << videoChainDesc;
 
@@ -314,7 +343,7 @@ void GstRtspReceiver::startPipeline() {
     }
 
     g_object_set(source, "latency", rtspLatencyMsec, "drop-on-latency", FALSE, "tcp-timeout",
-                 static_cast<guint64>(20000000), "timeout", static_cast<guint64>(5000000), "probation", 1,
+                 static_cast<guint64>(20000000), "timeout", static_cast<guint64>(5000000), "probation", 2,
                  "udp-buffer-size", udpBufferSizeBytes, nullptr);
     setOptionalBooleanProperty(source, "do-rtsp-keep-alive", TRUE);
     setOptionalBooleanProperty(source, "udp-reconnect", TRUE);
@@ -324,7 +353,6 @@ void GstRtspReceiver::startPipeline() {
     g_signal_connect(source, "select-stream", G_CALLBACK(&GstRtspReceiver::onSelectStream), this);
     g_signal_connect(source, "pad-added", G_CALLBACK(&GstRtspReceiver::onPadAdded), this);
     g_signal_connect(source, "before-send", G_CALLBACK(&GstRtspReceiver::onBeforeSend), this);
-
     qDebug().noquote() << "[GstRtspReceiver] rtspsrc latency:" << rtspLatencyMsec
                        << "drop-on-latency:false protocols:defaults";
 
@@ -407,7 +435,7 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
-    busTimer_.start(busPollIntervalMsec);
+    busTimer_->start(busPollIntervalMsec);
 
     emit statusChanged("Connecting");
 }
@@ -416,9 +444,9 @@ void GstRtspReceiver::startPipeline() {
  * @brief   재연결 예약을 취소하고 현재 pipeline을 종료합니다.
  */
 void GstRtspReceiver::stop() {
-    manualStop_ = true;
+    manualStop_.store(true, std::memory_order_release);
 
-    reconnectTimer_.stop();
+    reconnectTimer_->stop();
 
     teardownPipeline();
     emit loadingChanged(false);
@@ -428,7 +456,7 @@ void GstRtspReceiver::stop() {
  * @brief   GStreamer pipeline을 NULL 상태로 내린 뒤 bus handler와 참조를 정리합니다.
  */
 void GstRtspReceiver::teardownPipeline() {
-    busTimer_.stop();
+    busTimer_->stop();
 
     if (pipeline_) {
         GstElement* pipeline = pipeline_;
@@ -439,11 +467,11 @@ void GstRtspReceiver::teardownPipeline() {
             gst_object_unref(bus);
         }
 
-        teardownInProgress_ = true;
+        teardownInProgress_.store(true, std::memory_order_release);
         gst_element_set_state(pipeline, GST_STATE_NULL);
 
         const GstStateChangeReturn ret = gst_element_get_state(pipeline, nullptr, nullptr, 5 * GST_SECOND);
-        teardownInProgress_ = false;
+        teardownInProgress_.store(false, std::memory_order_release);
 
         if (ret == GST_STATE_CHANGE_FAILURE) {
             qWarning() << "[GstRtspReceiver] Failed to set pipeline to NULL";
@@ -463,13 +491,14 @@ void GstRtspReceiver::teardownPipeline() {
  * @param overrideDelayMsec  0보다 크면 기본 backoff 대신 사용할 지연 시간
  */
 void GstRtspReceiver::scheduleReconnect(const QString& reason, int overrideDelayMsec) {
-    if (manualStop_ || reconnectTimer_.isActive()) {
+    if (manualStop_.load(std::memory_order_acquire) || reconnectTimer_->isActive()) {
         return;
     }
 
     const int backoffStep = std::min(reconnectAttempts_, 4);
-    const int delayMsec =
-        overrideDelayMsec > 0 ? overrideDelayMsec : std::min(maxReconnectDelayMsec, 1000 << backoffStep);
+    const int baseDelayMsec = std::min(maxReconnectDelayMsec, 1000 << backoffStep);
+    const int channelSpreadMsec = static_cast<int>(qHash(url_) % reconnectSpreadMsec);
+    const int delayMsec = overrideDelayMsec > 0 ? overrideDelayMsec : baseDelayMsec + channelSpreadMsec;
     ++reconnectAttempts_;
 
     emit loadingChanged(true);
@@ -477,7 +506,7 @@ void GstRtspReceiver::scheduleReconnect(const QString& reason, int overrideDelay
     emit statusChanged(
         QString("Reconnect in %1 ms (attempt %2): %3").arg(delayMsec).arg(reconnectAttempts_).arg(reason));
 
-    reconnectTimer_.start(delayMsec);
+    reconnectTimer_->start(delayMsec);
 }
 
 /**
@@ -538,7 +567,7 @@ bool GstRtspReceiver::applySourceProperties(GstElement* source) {
  * @brief   첫 RTP/H.264 패킷 수신을 UI 상태와 로그로 알립니다.
  */
 void GstRtspReceiver::markFirstPacket() {
-    if (manualStop_ || !pipeline_) {
+    if (manualStop_.load(std::memory_order_acquire) || !pipeline_) {
         return;
     }
 
@@ -552,7 +581,7 @@ void GstRtspReceiver::markFirstPacket() {
  * @brief   첫 디코딩 프레임 수신을 기록하고 최소 로딩 연출 이후 오버레이를 숨깁니다.
  */
 void GstRtspReceiver::markFirstFrame() {
-    if (firstFrameReported_ || manualStop_ || !pipeline_) {
+    if (firstFrameReported_ || manualStop_.load(std::memory_order_acquire) || !pipeline_) {
         return;
     }
 
@@ -566,7 +595,7 @@ void GstRtspReceiver::markFirstFrame() {
     emit firstFrameReceived();
 
     QTimer::singleShot(remainingMsec, this, [this]() {
-        if (!manualStop_ && firstFrameReported_) {
+        if (!manualStop_.load(std::memory_order_acquire) && firstFrameReported_) {
             emit loadingChanged(false);
         }
     });
@@ -576,17 +605,20 @@ void GstRtspReceiver::markFirstFrame() {
  * @brief   초기 패킷/프레임 수신 지연과 실행 중 frame stall을 감시합니다.
  */
 void GstRtspReceiver::checkStall() {
-    if (manualStop_ || !pipeline_) {
+    if (manualStop_.load(std::memory_order_acquire) || !pipeline_) {
         return;
     }
 
+    const gint64 nowUsec = g_get_monotonic_time();
     const qint64 startupElapsedMsec = startupTimer_.isValid() ? startupTimer_.elapsed() : 0;
 
     if (!gotAnyPacket_.load(std::memory_order_relaxed)) {
         if (startupElapsedMsec > initialPacketTimeoutMsec) {
-            const QString reason = videoPadLinked_
-                                       ? QString("no RTP packet for %1 ms after H264 pad link").arg(startupElapsedMsec)
-                                       : QString("no H264 video pad/RTP packet for %1 ms").arg(startupElapsedMsec);
+            const QString stage = videoPadLinked_.load(std::memory_order_acquire)
+                                      ? QStringLiteral("H264 pad linked but no depay packet arrived")
+                                      : QStringLiteral("no H264 RTP pad/packet arrived");
+            const QString reason =
+                QStringLiteral("initial stream timeout after %1 ms: %2").arg(startupElapsedMsec).arg(stage);
 
             restartPipeline(reason);
         }
@@ -595,12 +627,19 @@ void GstRtspReceiver::checkStall() {
     }
 
     if (!gotAnyFrame_.load(std::memory_order_relaxed)) {
-        const gint64 lastPacketTime = lastPacketTimeUsec_.load(std::memory_order_relaxed);
-        const gint64 elapsedSincePacketMsec = (g_get_monotonic_time() - lastPacketTime) / 1000;
+        const gint64 firstPacketTime = firstPacketTimeUsec_.load(std::memory_order_acquire);
 
-        if (elapsedSincePacketMsec > initialFrameTimeoutMsec) {
-            const QString reason =
-                QString("no decoded frame for %1 ms after first RTP packet").arg(elapsedSincePacketMsec);
+        if (firstPacketTime <= 0) {
+            return;
+        }
+
+        const gint64 elapsedSinceFirstPacketMsec = (nowUsec - firstPacketTime) / 1000;
+
+        if (elapsedSinceFirstPacketMsec > initialFrameTimeoutMsec) {
+            const gint64 packetAgeMsec = (nowUsec - lastPacketTimeUsec_.load(std::memory_order_relaxed)) / 1000;
+            const QString reason = QStringLiteral("no decoded frame for %1 ms after first RTP packet; packetAge=%2 ms")
+                                       .arg(elapsedSinceFirstPacketMsec)
+                                       .arg(packetAgeMsec);
 
             restartPipeline(reason);
         }
@@ -614,13 +653,15 @@ void GstRtspReceiver::checkStall() {
         return;
     }
 
-    const gint64 elapsedMsec = (g_get_monotonic_time() - lastFrameTime) / 1000;
+    const gint64 elapsedMsec = (nowUsec - lastFrameTime) / 1000;
 
     if (elapsedMsec <= stallTimeoutMsec) {
         return;
     }
 
-    const QString reason = QString("stream stalled for %1 ms").arg(elapsedMsec);
+    const gint64 packetAgeMsec = (nowUsec - lastPacketTimeUsec_.load(std::memory_order_relaxed)) / 1000;
+    const QString reason =
+        QStringLiteral("stream stalled for %1 ms; packetAge=%2 ms").arg(elapsedMsec).arg(packetAgeMsec);
 
     restartPipeline(reason);
 }
@@ -660,7 +701,12 @@ GstPadProbeReturn GstRtspReceiver::onPacketProbe(GstPad*, GstPadProbeInfo*, gpoi
         return GST_PAD_PROBE_OK;
     }
 
-    receiver->lastPacketTimeUsec_.store(g_get_monotonic_time(), std::memory_order_relaxed);
+    const gint64 packetTimeUsec = g_get_monotonic_time();
+    receiver->lastPacketTimeUsec_.store(packetTimeUsec, std::memory_order_relaxed);
+
+    gint64 expectedFirstPacketTime = 0;
+    receiver->firstPacketTimeUsec_.compare_exchange_strong(expectedFirstPacketTime, packetTimeUsec,
+                                                           std::memory_order_release, std::memory_order_relaxed);
 
     bool expected = false;
     if (receiver->gotAnyPacket_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
@@ -697,11 +743,11 @@ gboolean GstRtspReceiver::onSelectStream(GstElement*, guint streamNumber, GstCap
 void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
     auto* receiver = static_cast<GstRtspReceiver*>(userData);
 
-    if (!receiver || receiver->manualStop_ || !receiver->pipeline_) {
+    if (!receiver || receiver->manualStop_.load(std::memory_order_acquire) || !receiver->pipeline_) {
         return;
     }
 
-    if (receiver->videoPadLinked_) {
+    if (receiver->videoPadLinked_.load(std::memory_order_acquire)) {
         return;
     }
 
@@ -728,7 +774,7 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
     }
 
     if (gst_pad_is_linked(chainSinkPad)) {
-        receiver->videoPadLinked_ = true;
+        receiver->videoPadLinked_.store(true, std::memory_order_release);
         gst_object_unref(chainSinkPad);
         gst_object_unref(videoChain);
         return;
@@ -737,7 +783,7 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
     const GstPadLinkReturn linkResult = gst_pad_link(pad, chainSinkPad);
 
     if (GST_PAD_LINK_SUCCESSFUL(linkResult)) {
-        receiver->videoPadLinked_ = true;
+        receiver->videoPadLinked_.store(true, std::memory_order_release);
         QMetaObject::invokeMethod(
             receiver, [receiver]() { receiver->statusChanged(QStringLiteral("H264 video pad linked")); },
             Qt::QueuedConnection);
@@ -760,7 +806,7 @@ void GstRtspReceiver::onPadAdded(GstElement*, GstPad* pad, gpointer userData) {
 gboolean GstRtspReceiver::onBeforeSend(GstElement*, GstRTSPMessage* message, gpointer userData) {
     auto* receiver = static_cast<GstRtspReceiver*>(userData);
 
-    if (!receiver || !receiver->teardownInProgress_ || !message) {
+    if (!receiver || !receiver->teardownInProgress_.load(std::memory_order_acquire) || !message) {
         return TRUE;
     }
 
@@ -811,11 +857,21 @@ GstBusSyncReply GstRtspReceiver::onBusSyncMessage(GstBus*, GstMessage* message, 
  * @return  GStreamer bin description 일부로 사용할 decoder chain
  */
 QString GstRtspReceiver::decoderChain() const {
-    if (hasGstFactory("avdec_h264")) {
-        return "avdec_h264 max-threads=2 ! videoconvert n-threads=2 ! video/x-raw,format=BGRx";
+    const QByteArray decoderMode = qgetenv("QTCCTV_DECODER_MODE").trimmed().toLower();
+
+    if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
     }
 
-    return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    if (hasGstFactory("avdec_h264")) {
+        return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";
+    }
+
+    if (hasGstFactory("d3d11h264dec")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    }
+
+    return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";
 }
 
 /**
@@ -834,10 +890,11 @@ void GstRtspReceiver::pollBus() {
 
     GstMessage* msg = nullptr;
 
-    while ((msg = gst_bus_pop_filtered(bus, static_cast<GstMessageType>(
-                                                GST_MESSAGE_ERROR | GST_MESSAGE_EOS | GST_MESSAGE_STATE_CHANGED |
-                                                GST_MESSAGE_ASYNC_DONE | GST_MESSAGE_LATENCY | GST_MESSAGE_ELEMENT))) !=
-           nullptr) {
+    while (
+        (msg = gst_bus_pop_filtered(
+             bus, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_WARNING | GST_MESSAGE_EOS |
+                                              GST_MESSAGE_STATE_CHANGED | GST_MESSAGE_ASYNC_DONE | GST_MESSAGE_LATENCY |
+                                              GST_MESSAGE_CLOCK_LOST | GST_MESSAGE_ELEMENT))) != nullptr) {
         switch (GST_MESSAGE_TYPE(msg)) {
             case GST_MESSAGE_ERROR: {
                 GError* err = nullptr;
@@ -866,6 +923,26 @@ void GstRtspReceiver::pollBus() {
                 scheduleReconnect(errorText,
                                   isAuthenticationFailure(errorText) ? authenticationFailureReconnectDelayMsec : 0);
                 return;
+            }
+
+            case GST_MESSAGE_WARNING: {
+                GError* warning = nullptr;
+                gchar* debugInfo = nullptr;
+                gst_message_parse_warning(msg, &warning, &debugInfo);
+
+                qWarning().noquote() << "[GStreamer Warning]"
+                                     << (warning ? QString::fromUtf8(warning->message)
+                                                 : QStringLiteral("Unknown GStreamer warning"));
+
+                if (debugInfo) {
+                    qDebug().noquote() << "[GStreamer Warning Debug]" << QString::fromUtf8(debugInfo);
+                    g_free(debugInfo);
+                }
+
+                if (warning) {
+                    g_error_free(warning);
+                }
+                break;
             }
 
             case GST_MESSAGE_EOS:
@@ -905,13 +982,19 @@ void GstRtspReceiver::pollBus() {
                 gst_bin_recalculate_latency(GST_BIN(pipeline_));
                 break;
 
+            case GST_MESSAGE_CLOCK_LOST:
+                qWarning() << "[GStreamer] Pipeline clock lost; selecting a new clock";
+                gst_element_set_state(pipeline_, GST_STATE_PAUSED);
+                gst_element_set_state(pipeline_, GST_STATE_PLAYING);
+                break;
+
             case GST_MESSAGE_ELEMENT: {
                 const GstStructure* structure = gst_message_get_structure(msg);
 
                 if (structure && gst_structure_has_name(structure, "GstRTSPSrcTimeout")) {
                     gchar* detail = gst_structure_to_string(structure);
                     const QString timeoutDetail = detail ? QString::fromUtf8(detail) : QStringLiteral("unknown");
-                    const QString reason = QString("RTSP timeout: %1").arg(timeoutDetail);
+                    const QString reason = QString("RTSP transport timeout: %1").arg(timeoutDetail);
 
                     qDebug().noquote() << "[GStreamer RTSP Timeout]" << reason;
                     emit statusChanged(reason);
@@ -920,11 +1003,7 @@ void GstRtspReceiver::pollBus() {
                         g_free(detail);
                     }
 
-                    gst_message_unref(msg);
-                    gst_object_unref(bus);
-                    teardownPipeline();
-                    scheduleReconnect(reason);
-                    return;
+                    // rtspsrc가 UDP RTP timeout 후 TCP fallback을 완료할 수 있도록 세션을 유지합니다.
                 }
 
                 break;

@@ -5,15 +5,20 @@
 #include <QHash>
 #include <QRectF>
 #include <QThread>
+#include <QTimer>
 #include <QVector>
 #include <memory>
 
 #include "model/DigitalTwinTypes.h"
+#include "model/DigitalTwinMapDisplaySettings.h"
+#include "model/MqttRealtimeData.h"
+#include "overlays/DeviceStatusMapOverlay.h"
 #include "overlays/OverlayManager.h"
 
 class DigitalTwinSimulationWorker;
 class DigitalTwinMapSceneBuilder;
 class DigitalTwinObjectStyleProvider;
+class DangerAlertOverlay;
 class QGraphicsPathItem;
 class QGraphicsPixmapItem;
 class QGraphicsSimpleTextItem;
@@ -29,9 +34,16 @@ public:
 
     void startDemo();
     void stopDemo();
+    void applyDisplaySettings(const DigitalTwinMapDisplaySettings& settings);
+
+public slots:
+    void applyTopViewFrame(TopViewFrameData frame);
+    void applyCentralEvent(CentralEventData event);
+    void applyDeviceChannelStatuses(QVector<DeviceChannelStatus> statuses);
+    void setDeviceSignalAvailable(bool available);
 
 signals:
-    void objectListUpdated(QVector<DigitalTwinObject> objects);
+    void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -48,8 +60,14 @@ private:
 
     void setupScene();
     void setupSimulationWorker();
+    void applySimulationSnapshot(const DigitalTwinSnapshot& snapshot);
     void applyObjectUpdates(const QVector<DigitalTwinObject>& objects);
     void showRiskPulse(const DigitalTwinRiskEvent& event);
+    void rebuildLiveSnapshot();
+    QPointF normalizedWorldPosition(const QPointF& worldPosition) const;
+    int activeSeverityForChannel(int channelIndex) const;
+    bool hasActiveCentralDanger() const;
+    void expireStaleLiveFrames();
     void createVisualItem(const DigitalTwinObject& object);
     void updateVisualItem(DemoVisualItem* visualItem);
     void updateMarkerPixmap(DemoVisualItem* visualItem);
@@ -63,10 +81,26 @@ private:
     QGraphicsScene scene_;
     QThread simulationThread_;
     OverlayManager overlayManager_;
+    DeviceStatusMapOverlay deviceStatusMapOverlay_;
+    DigitalTwinMapDisplaySettings displaySettings_;
+    DangerAlertOverlay* dangerAlertOverlay_ = nullptr;
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
     std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;
     QVector<DemoVisualItem> demoItems_;
     QHash<QString, qsizetype> visualItemIndexes_;
+    QHash<int, TopViewFrameData> liveFrames_;
+    QHash<int, qint64> liveFrameArrivalTimes_;
+    QHash<int, qint64> liveFrameSourceTimes_;
+    QHash<QString, qint64> latestCentralEventSourceTimes_;
+    QHash<QString, CentralEventData> activeCentralEvents_;
+    QHash<QString, QPointF> previousLivePositions_;
+    QTimer liveFrameExpiryTimer_;
+    QTimer liveFrameRenderTimer_;
     QRectF mapRect_;
+    QRectF configuredWorldBounds_;
+    QRectF automaticWorldBounds_;
+    bool hasConfiguredWorldBounds_ = false;
+    bool hasAutomaticWorldBounds_ = false;
+    bool liveMode_ = false;
 };

@@ -29,16 +29,14 @@ double spawnerRandomRange(double minimumValue, double maximumValue) {
 
 /**
  * @brief   데모 객체 타입을 무작위로 선택합니다.
- * @return  차량, 보행자, 오토바이 중 하나
+ * @return  차량 또는 보행자 중 하나
  */
 DigitalTwinObjectType randomObjectType() {
-    switch (QRandomGenerator::global()->bounded(3)) {
+    switch (QRandomGenerator::global()->bounded(2)) {
         case 0:
             return DigitalTwinObjectType::Vehicle;
-        case 1:
-            return DigitalTwinObjectType::Pedestrian;
         default:
-            return DigitalTwinObjectType::Motorcycle;
+            return DigitalTwinObjectType::Pedestrian;
     }
 }
 
@@ -53,8 +51,6 @@ QColor colorForObjectType(DigitalTwinObjectType objectType) {
             return QColor(QStringLiteral("#23d8ff"));
         case DigitalTwinObjectType::Pedestrian:
             return QColor(QStringLiteral("#45f23a"));
-        case DigitalTwinObjectType::Motorcycle:
-            return QColor(QStringLiteral("#29a9cd"));
     }
 
     return QColor(QStringLiteral("#23d8ff"));
@@ -71,8 +67,6 @@ QString idPrefixForObjectType(DigitalTwinObjectType objectType) {
             return QStringLiteral("V");
         case DigitalTwinObjectType::Pedestrian:
             return QStringLiteral("P");
-        case DigitalTwinObjectType::Motorcycle:
-            return QStringLiteral("M");
     }
 
     return QStringLiteral("O");

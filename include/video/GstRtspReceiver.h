@@ -6,12 +6,12 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
-#include <QTimer>
 #include <atomic>
 
 #include "video/StreamReceiver.h"
 
 class QThread;
+class QTimer;
 
 class GstRtspReceiver : public StreamReceiver {
     Q_OBJECT
@@ -37,32 +37,44 @@ private:
     bool applySourceProperties(GstElement* source);
     QString decoderChain() const;
     void checkStall();
+
     void markFirstPacket();
 
     static GstPadProbeReturn onFrameProbe(GstPad* pad, GstPadProbeInfo* info, gpointer userData);
+
     static GstPadProbeReturn onPacketProbe(GstPad* pad, GstPadProbeInfo* info, gpointer userData);
+
     static gboolean onSelectStream(GstElement* source, guint streamNumber, GstCaps* caps, gpointer userData);
+
     static void onPadAdded(GstElement* source, GstPad* pad, gpointer userData);
+
     static gboolean onBeforeSend(GstElement* source, GstRTSPMessage* message, gpointer userData);
+
     static GstBusSyncReply onBusSyncMessage(GstBus* bus, GstMessage* message, gpointer userData);
 
+private:
     guintptr outputWindowHandle_ = 0;
     QString url_;
 
     GstElement* pipeline_ = nullptr;
-    QTimer busTimer_;
-    QTimer reconnectTimer_;
+    QTimer* busTimer_ = nullptr;
+    QTimer* reconnectTimer_ = nullptr;
 
     QElapsedTimer startupTimer_;
+
+    std::atomic<gint64> firstPacketTimeUsec_{0};
     std::atomic<gint64> lastPacketTimeUsec_{0};
     std::atomic<gint64> lastFrameTimeUsec_{0};
     std::atomic_bool gotAnyPacket_{false};
     std::atomic_bool gotAnyFrame_{false};
+
     guintptr windowHandle_ = 0;
     int reconnectAttempts_ = 0;
-    bool videoPadLinked_ = false;
-    bool manualStop_ = true;
-    bool teardownInProgress_ = false;
+
+    std::atomic_bool videoPadLinked_{false};
+    std::atomic_bool manualStop_{true};
+    std::atomic_bool teardownInProgress_{false};
+
     bool firstAsyncDoneReported_ = false;
     bool firstFrameReported_ = false;
 };

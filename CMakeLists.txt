@@ -2,14 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Qtcctvclient LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(ProcessorCount)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Mqtt Network Widgets)
 
-set(GSTREAMER_ROOT "C:/Program Files/gstreamer/1.0/mingw_x86_64")
+set(GSTREAMER_ROOT "C:/Program Files/gstreamer/1.0/mingw_x86_64" CACHE PATH
+    "GStreamer MinGW x86_64 runtime root")
 
 option(QTCCTV_ENABLE_PCH "Enable precompiled headers for faster Qt rebuilds" ON)
 option(QTCCTV_ENABLE_UNITY_BUILD "Enable unity build for faster full rebuilds" OFF)
@@ -28,7 +29,20 @@ qt_add_executable(Qtcctvclient
     src/ui/mainwindow.ui
     include/ui/ClickableVideoWidget.h
     src/ui/ClickableVideoWidget.cpp
+    include/ui/dialogs/MapSettingsDialog.h
+    src/ui/dialogs/MapSettingsDialog.cpp
     include/ui/DashboardLayout.h
+    include/ui/panels/DashboardPanelFactory.h
+    include/ui/panels/DefaultDashboardPanelFactory.h
+    src/ui/panels/DefaultDashboardPanelFactory.cpp
+    include/ui/panels/DashboardPanelCoordinator.h
+    src/ui/panels/DashboardPanelCoordinator.cpp
+    include/ui/panels/DeviceStatusPanel.h
+    src/ui/panels/DeviceStatusPanel.cpp
+    include/ui/panels/EventLogPanel.h
+    src/ui/panels/EventLogPanel.cpp
+    include/ui/panels/ObjectListPanel.h
+    src/ui/panels/ObjectListPanel.cpp
     include/ui/DigitalTwinMapWidget.h
     src/ui/DigitalTwinMapWidget.cpp
     include/ui/DigitalTwinMapSceneBuilder.h
@@ -37,28 +51,55 @@ qt_add_executable(Qtcctvclient
     src/ui/DigitalTwinObjectStyleProvider.cpp
     include/ui/DigitalTwinObjectTableModel.h
     src/ui/DigitalTwinObjectTableModel.cpp
+    include/ui/EventLogTableModel.h
+    src/ui/EventLogTableModel.cpp
 
     include/overlays/RadarPulseItem.h
     src/overlays/RadarPulseItem.cpp
+    include/overlays/DangerAlertOverlay.h
+    src/overlays/DangerAlertOverlay.cpp
     include/overlays/OverlayManager.h
     src/overlays/OverlayManager.cpp
+    include/overlays/DeviceStatusMapOverlay.h
+    src/overlays/DeviceStatusMapOverlay.cpp
 
     include/video/StreamReceiver.h
     include/video/StreamReceiverFactory.h
+    include/video/GstStreamReceiverFactory.h
     src/video/GstStreamReceiverFactory.cpp
     include/video/GstRtspReceiver.h
     src/video/GstRtspReceiver.cpp
 
     include/model/DigitalTwinTypes.h
+    include/model/DigitalTwinMapDisplaySettings.h
+    include/model/DeviceStatus.h
+    include/model/DeviceStatusReport.h
+    include/model/MqttRealtimeData.h
     include/model/DigitalTwinObjectSpawner.h
     src/model/RandomEdgeObjectSpawner.cpp
     include/model/DigitalTwinRiskPolicy.h
     include/model/DigitalTwinSimulationWorker.h
     src/model/DigitalTwinSimulationWorker.cpp
     src/model/DistanceRiskPolicy.cpp
+    include/model/EventLogEntry.h
+    include/model/EventLogGenerator.h
+    src/model/EventLogGenerator.cpp
     include/model/StreamConfig.h
 
+    include/network/DeviceStatusGateway.h
+    src/network/DeviceStatusGateway.cpp
+    include/network/DeviceStatusGatewayFactory.h
+    include/network/MqttDeviceStatusGateway.h
+    include/network/TopViewFrameDispatcher.h
+    src/network/TopViewFrameDispatcher.cpp
+    src/network/MqttDeviceStatusGateway.cpp
+    include/network/MqttDeviceStatusGatewayFactory.h
+    src/network/MqttDeviceStatusGatewayFactory.cpp
+    include/network/DeviceStatusService.h
+    src/network/DeviceStatusService.cpp
     include/network/rtsp.h
+    include/video/StreamSessionManager.h
+    src/video/StreamSessionManager.cpp
 )
 
 qt_add_resources(Qtcctvclient "style_resources"
@@ -78,11 +119,20 @@ qt_add_resources(Qtcctvclient "icon_resources"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_warning.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/buzzer_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/cctv_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/config_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/danger_alert.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_off.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_safe.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_waring.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_danger.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_icon.png"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/motor_warning.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_off.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_safe.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_danger.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/siren_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_icon.png"
@@ -130,6 +180,7 @@ if(QTCCTV_ENABLE_PCH)
         <QPen>
         <QPointF>
         <QRectF>
+        <QSet>
         <QShowEvent>
         <QSize>
         <QSizePolicy>
@@ -137,6 +188,7 @@ if(QTCCTV_ENABLE_PCH)
         <QTableView>
         <QThread>
         <QTimer>
+        <QTime>
         <QVector>
         <QWidget>
     )
@@ -162,6 +214,8 @@ target_link_directories(Qtcctvclient PRIVATE
 
 target_link_libraries(Qtcctvclient PRIVATE
     Qt6::Widgets
+    Qt6::Mqtt
+    Qt6::Network
 
     gstreamer-1.0
     gstrtsp-1.0

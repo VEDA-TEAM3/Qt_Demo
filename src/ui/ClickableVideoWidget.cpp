@@ -1,6 +1,8 @@
 #include "ui/ClickableVideoWidget.h"
 
 #include <QDateTime>
+#include <QEnterEvent>
+#include <QEvent>
 #include <QFrame>
 #include <QLabel>
 #include <QMouseEvent>
@@ -86,6 +88,7 @@ private:
 ClickableVideoWidget::ClickableVideoWidget(QWidget* parent) : QWidget(parent) {
     setAttribute(Qt::WA_NativeWindow);
     setAttribute(Qt::WA_DontCreateNativeAncestors);
+    setMouseTracking(true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setProperty("loading", true);
 
@@ -111,7 +114,7 @@ ClickableVideoWidget::ClickableVideoWidget(QWidget* parent) : QWidget(parent) {
 
     spinner->setSpinning(true);
 
-    updateLoadingOverlayGeometry();
+    updateOverlayGeometry();
 }
 
 /**
@@ -136,6 +139,24 @@ void ClickableVideoWidget::setLoading(bool loading) {
 }
 
 /**
+ * @brief       마우스가 영상 영역에 들어오면 선택 가능 상태를 테두리로 표시합니다.
+ * @param event Qt 진입 이벤트
+ */
+void ClickableVideoWidget::enterEvent(QEnterEvent* event) {
+    QWidget::enterEvent(event);
+    setHoverHighlighted(true);
+}
+
+/**
+ * @brief       마우스가 영상 영역을 벗어나면 hover 테두리를 숨깁니다.
+ * @param event Qt 이탈 이벤트
+ */
+void ClickableVideoWidget::leaveEvent(QEvent* event) {
+    QWidget::leaveEvent(event);
+    setHoverHighlighted(false);
+}
+
+/**
  * @brief       Qt 더블클릭 이벤트를 수신해 중복 방지 후 시그널을 발생시킵니다.
  * @param event  마우스 더블클릭 이벤트
  */
@@ -150,7 +171,7 @@ void ClickableVideoWidget::mouseDoubleClickEvent(QMouseEvent* event) {
  */
 void ClickableVideoWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    updateLoadingOverlayGeometry();
+    updateOverlayGeometry();
 }
 
 #ifdef Q_OS_WIN
@@ -167,9 +188,20 @@ bool ClickableVideoWidget::nativeEvent(const QByteArray& eventType, void* messag
 
     MSG* msg = static_cast<MSG*>(message);
 
-    if (msg && msg->message == WM_LBUTTONDBLCLK) {
-        emitDoubleClickedOnce();
-        return true;
+    if (msg) {
+        if (msg->message == WM_MOUSEMOVE) {
+            TRACKMOUSEEVENT trackingEvent{};
+            trackingEvent.cbSize = sizeof(trackingEvent);
+            trackingEvent.dwFlags = TME_LEAVE;
+            trackingEvent.hwndTrack = msg->hwnd;
+            TrackMouseEvent(&trackingEvent);
+            setHoverHighlighted(true);
+        } else if (msg->message == WM_MOUSELEAVE) {
+            setHoverHighlighted(false);
+        } else if (msg->message == WM_LBUTTONDBLCLK) {
+            emitDoubleClickedOnce();
+            return true;
+        }
     }
 
     return QWidget::nativeEvent(eventType, message, result);
@@ -192,13 +224,24 @@ void ClickableVideoWidget::emitDoubleClickedOnce() {
 }
 
 /**
- * @brief   로딩 오버레이를 현재 위젯 영역 전체에 맞추고 최상단으로 올립니다.
+ * @brief             현재 영상 칸의 hover 테두리 표시 상태를 변경합니다.
+ * @param highlighted  표시할 경우 true
  */
-void ClickableVideoWidget::updateLoadingOverlayGeometry() {
-    if (!loadingOverlay_) {
+void ClickableVideoWidget::setHoverHighlighted(bool highlighted) {
+    if (hovered_ == highlighted) {
         return;
     }
 
-    loadingOverlay_->setGeometry(rect());
-    loadingOverlay_->raise();
+    hovered_ = highlighted;
+    emit hoverChanged(hovered_);
+}
+
+/**
+ * @brief   로딩 오버레이를 현재 위젯 영역 전체에 맞추고 최상단으로 올립니다.
+ */
+void ClickableVideoWidget::updateOverlayGeometry() {
+    if (loadingOverlay_) {
+        loadingOverlay_->setGeometry(rect());
+        loadingOverlay_->raise();
+    }
 }

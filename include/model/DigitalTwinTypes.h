@@ -9,7 +9,6 @@
 enum class DigitalTwinObjectType {
     Vehicle,
     Pedestrian,
-    Motorcycle,
 };
 
 enum class DigitalTwinRiskLevel {
@@ -34,6 +33,19 @@ struct DigitalTwinRiskEvent {
     DigitalTwinRiskLevel riskLevel = DigitalTwinRiskLevel::Normal;
 };
 
+struct DigitalTwinPairRiskState {
+    QString firstObjectId;
+    QString secondObjectId;
+    DigitalTwinRiskLevel riskLevel = DigitalTwinRiskLevel::Normal;
+};
+
+struct DigitalTwinSnapshot {
+    QVector<DigitalTwinObject> objects;
+    QVector<DigitalTwinPairRiskState> pairRiskStates;
+};
+
 Q_DECLARE_METATYPE(DigitalTwinObject)
 Q_DECLARE_METATYPE(DigitalTwinRiskEvent)
+Q_DECLARE_METATYPE(DigitalTwinPairRiskState)
+Q_DECLARE_METATYPE(DigitalTwinSnapshot)
 Q_DECLARE_METATYPE(QVector<DigitalTwinObject>)
