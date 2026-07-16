@@ -9,7 +9,8 @@ include(ProcessorCount)
 
 find_package(Qt6 REQUIRED COMPONENTS Mqtt Network Widgets)
 
-set(GSTREAMER_ROOT "C:/Program Files/gstreamer/1.0/mingw_x86_64")
+set(GSTREAMER_ROOT "C:/Program Files/gstreamer/1.0/mingw_x86_64" CACHE PATH
+    "GStreamer MinGW x86_64 runtime root")
 
 option(QTCCTV_ENABLE_PCH "Enable precompiled headers for faster Qt rebuilds" ON)
 option(QTCCTV_ENABLE_UNITY_BUILD "Enable unity build for faster full rebuilds" OFF)
@@ -28,6 +29,8 @@ qt_add_executable(Qtcctvclient
     src/ui/mainwindow.ui
     include/ui/ClickableVideoWidget.h
     src/ui/ClickableVideoWidget.cpp
+    include/ui/dialogs/MapSettingsDialog.h
+    src/ui/dialogs/MapSettingsDialog.cpp
     include/ui/DashboardLayout.h
     include/ui/panels/DashboardPanelFactory.h
     include/ui/panels/DefaultDashboardPanelFactory.h
@@ -57,6 +60,8 @@ qt_add_executable(Qtcctvclient
     src/overlays/DangerAlertOverlay.cpp
     include/overlays/OverlayManager.h
     src/overlays/OverlayManager.cpp
+    include/overlays/DeviceStatusMapOverlay.h
+    src/overlays/DeviceStatusMapOverlay.cpp
 
     include/video/StreamReceiver.h
     include/video/StreamReceiverFactory.h
@@ -66,6 +71,7 @@ qt_add_executable(Qtcctvclient
     src/video/GstRtspReceiver.cpp
 
     include/model/DigitalTwinTypes.h
+    include/model/DigitalTwinMapDisplaySettings.h
     include/model/DeviceStatus.h
     include/model/DeviceStatusReport.h
     include/model/MqttRealtimeData.h
@@ -84,6 +90,8 @@ qt_add_executable(Qtcctvclient
     src/network/DeviceStatusGateway.cpp
     include/network/DeviceStatusGatewayFactory.h
     include/network/MqttDeviceStatusGateway.h
+    include/network/TopViewFrameDispatcher.h
+    src/network/TopViewFrameDispatcher.cpp
     src/network/MqttDeviceStatusGateway.cpp
     include/network/MqttDeviceStatusGatewayFactory.h
     src/network/MqttDeviceStatusGatewayFactory.cpp
@@ -112,10 +120,18 @@ qt_add_resources(Qtcctvclient "icon_resources"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/human_warning.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/buzzer_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/cctv_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/config_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/danger_alert.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_icon.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_off.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_safe.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_waring.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_off.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_safe.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/siren_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/vehicle_danger.png"

@@ -2,10 +2,14 @@
 
 #include <algorithm>
 
+#include <QDateTime>
 #include <QDebug>
+#include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPixmap>
 #include <QResizeEvent>
 #include <QShowEvent>
@@ -24,6 +28,7 @@
 #include "ui/ClickableVideoWidget.h"
 #include "ui/DashboardLayout.h"
 #include "ui/DigitalTwinMapWidget.h"
+#include "ui/dialogs/MapSettingsDialog.h"
 #include "ui/panels/DashboardPanelCoordinator.h"
 #include "ui/panels/DashboardPanelFactory.h"
 #include "ui/panels/DeviceStatusPanel.h"
@@ -59,6 +64,7 @@ MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFact
     setupStreamConfigs();
     setupDashboardLayout();
     setupTopBarStatuses();
+    setupClock();
     setupDashboardPanels();
     setupDashboardPanelCoordinator();
     setupDeviceStatusService();
@@ -70,10 +76,10 @@ MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFact
  * @brief   대시보드에서 사용할 카메라 스트림 설정을 구성합니다.
  */
 void MainWindow::setupStreamConfigs() {
-    streamConfigs_ = {{QStringLiteral("cam-01"), QStringLiteral("제 1구역"), Network::Rtsp::zone1(), 0, true},
-                      {QStringLiteral("cam-02"), QStringLiteral("제 2구역"), Network::Rtsp::zone2(), 1, true},
-                      {QStringLiteral("cam-03"), QStringLiteral("제 3구역"), Network::Rtsp::zone3(), 2, true},
-                      {QStringLiteral("cam-04"), QStringLiteral("제 4구역"), Network::Rtsp::zone4(), 3, true}};
+    streamConfigs_ = {{QStringLiteral("cam-01"), QStringLiteral("CH - 01"), Network::Rtsp::zone1(), 0, true},
+                      {QStringLiteral("cam-02"), QStringLiteral("CH - 02"), Network::Rtsp::zone2(), 1, true},
+                      {QStringLiteral("cam-03"), QStringLiteral("CH - 03"), Network::Rtsp::zone3(), 2, true},
+                      {QStringLiteral("cam-04"), QStringLiteral("CH - 04"), Network::Rtsp::zone4(), 3, true}};
 }
 
 /**
@@ -88,16 +94,70 @@ void MainWindow::setupDashboardLayout() {
 
     const QPixmap settingsIcon(QStringLiteral(":/icons/config_icon.png"));
     ui_->settingsLabel->setText({});
-    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(32, 32), Qt::KeepAspectRatio,
+    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(29, 29), Qt::KeepAspectRatio,
                                                       Qt::SmoothTransformation));
     ui_->settingsLabel->setAlignment(Qt::AlignCenter);
-    ui_->settingsLabel->setFixedSize(72, 54);
+    ui_->settingsLabel->setFixedSize(65, 49);
+    ui_->settingsLabel->setFocusPolicy(Qt::StrongFocus);
+    ui_->settingsLabel->installEventFilter(this);
     ui_->settingsLabel->setToolTip(QStringLiteral("설정"));
+
+    mapSettingsDialog_ = new MapSettingsDialog(this);
+    connect(mapSettingsDialog_, &MapSettingsDialog::settingsApplied, this,
+            [this](const DigitalTwinMapDisplaySettings& settings) {
+                mapDisplaySettings_ = settings;
+                if (ui_->digitalTwinMapWidget) {
+                    ui_->digitalTwinMapWidget->applyDisplaySettings(mapDisplaySettings_);
+                }
+            });
     updateCameraSelectionLabel(nullptr);
 }
 
 /**
- * @brief   상단 시스템 및 CCTV 연결 상태를 연결 대기 상태로 초기화합니다.
+ * @brief         우측 상단 설정 버튼의 마우스와 키보드 입력을 팝업 열기로 변환합니다.
+ * @param watched 이벤트를 받은 객체
+ * @param event   전달된 Qt 이벤트
+ * @return        설정 열기 입력을 처리했으면 true
+ */
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == ui_->settingsLabel && event) {
+        if (event->type() == QEvent::MouseButtonRelease) {
+            const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                openMapSettingsDialog();
+                return true;
+            }
+        }
+
+        if (event->type() == QEvent::KeyPress) {
+            const auto* keyEvent = static_cast<QKeyEvent*>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter ||
+                keyEvent->key() == Qt::Key_Space) {
+                openMapSettingsDialog();
+                return true;
+            }
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
+/**
+ * @brief 설정 팝업을 열고 적용된 경우에만 디지털 트윈 맵 표시 상태를 변경합니다.
+ */
+void MainWindow::openMapSettingsDialog() {
+    if (!mapSettingsDialog_) {
+        return;
+    }
+
+    mapSettingsDialog_->setSettings(mapDisplaySettings_);
+    mapSettingsDialog_->setGeometry(rect());
+    mapSettingsDialog_->show();
+    mapSettingsDialog_->raise();
+}
+
+/**
+ * @brief 상단 시스템 및 CCTV 연결 상태를 연결 대기 상태로 초기화합니다.
  */
 void MainWindow::setupTopBarStatuses() {
     updateSystemStatus(false);
@@ -106,11 +166,29 @@ void MainWindow::setupTopBarStatuses() {
 }
 
 /**
+ * @brief 상단 시계를 실제 시스템 시각과 1초 주기로 동기화합니다.
+ */
+void MainWindow::setupClock() {
+    clockTimer_.setInterval(1000);
+    clockTimer_.setTimerType(Qt::CoarseTimer);
+    connect(&clockTimer_, &QTimer::timeout, this, &MainWindow::updateCurrentDateTime);
+    updateCurrentDateTime();
+    clockTimer_.start();
+}
+
+/**
+ * @brief 현재 로컬 날짜와 시각을 상단 표시줄에 반영합니다.
+ */
+void MainWindow::updateCurrentDateTime() {
+    ui_->dateLabel->setText(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+}
+
+/**
  * @brief            MQTT 프로토콜 연결 여부를 상단 시스템 상태에 반영합니다.
  * @param connected  MQTT broker와 정상적으로 연결되었다면 true
  */
 void MainWindow::updateSystemStatus(bool connected) {
-    setTopBarStatus(ui_->systemStatusLabel, QStringLiteral("시스템 상태"),
+    setTopBarStatus(ui_->systemStatusLabel, QStringLiteral("통신 상태"),
                     connected ? QStringLiteral("● 정상") : QStringLiteral("● 연결 중"),
                     connected ? normalStatusColor : disconnectedStatusColor);
 }
@@ -123,8 +201,8 @@ void MainWindow::updateStreamConnectionStatus() {
                                  std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(),
                                              [](bool ready) { return ready; });
 
-    setTopBarStatus(ui_->connectionStatusLabel, QStringLiteral("연결 상태"),
-                    allStreamsReady ? QStringLiteral("● 연결됨") : QStringLiteral("● 연결 중"),
+    setTopBarStatus(ui_->connectionStatusLabel, QStringLiteral("CCTV 상태"),
+                    allStreamsReady ? QStringLiteral("● 정상") : QStringLiteral("● 연결 중"),
                     allStreamsReady ? normalStatusColor : disconnectedStatusColor);
 }
 
@@ -206,6 +284,12 @@ void MainWindow::setupDeviceStatusService() {
             &MainWindow::updateSystemStatus, Qt::QueuedConnection);
 
     if (ui_->digitalTwinMapWidget) {
+        connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged,
+                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::setDeviceSignalAvailable,
+                Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived,
+                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyDeviceChannelStatuses,
+                Qt::QueuedConnection);
         connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived,
                 ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
         connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
@@ -242,6 +326,10 @@ MainWindow::~MainWindow() {
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
     updateDashboardAdaptiveSizes();
+
+    if (mapSettingsDialog_ && mapSettingsDialog_->isVisible()) {
+        mapSettingsDialog_->setGeometry(rect());
+    }
 }
 
 /**
@@ -511,14 +599,14 @@ void MainWindow::updateCameraSelectionLabel(QWidget* targetWidget) {
     }
 
     if (!targetWidget) {
-        ui_->cameraSelectLabel->setText(QStringLiteral("전체 구역"));
+        ui_->cameraSelectLabel->setText(QStringLiteral("전체 채널"));
         return;
     }
 
     const qsizetype index = videoWidgets_.indexOf(targetWidget);
 
     if (index < 0 || index >= streamConfigs_.size()) {
-        ui_->cameraSelectLabel->setText(QStringLiteral("전체 구역"));
+        ui_->cameraSelectLabel->setText(QStringLiteral("전체 채널"));
         return;
     }
 

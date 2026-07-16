@@ -34,6 +34,7 @@ constexpr double maxTrailSceneLength = 240.0;
 constexpr double movingIconRotationOffsetDegrees = 90.0;
 constexpr int liveFrameExpiryMsec = 5000;
 constexpr int liveFrameExpiryPollMsec = 1000;
+constexpr int liveFrameRenderIntervalMsec = 50;
 
 bool configuredWorldBounds(QRectF& bounds) {
     const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
@@ -207,6 +208,10 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     liveFrameExpiryTimer_.setInterval(liveFrameExpiryPollMsec);
     liveFrameExpiryTimer_.setTimerType(Qt::CoarseTimer);
     connect(&liveFrameExpiryTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::expireStaleLiveFrames);
+    liveFrameRenderTimer_.setInterval(liveFrameRenderIntervalMsec);
+    liveFrameRenderTimer_.setSingleShot(true);
+    liveFrameRenderTimer_.setTimerType(Qt::CoarseTimer);
+    connect(&liveFrameRenderTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::rebuildLiveSnapshot);
 
     setObjectName(QStringLiteral("digitalTwinMapWidget"));
     setScene(&scene_);
@@ -277,6 +282,21 @@ void DigitalTwinMapWidget::stopDemo() {
                               Qt::BlockingQueuedConnection);
 }
 
+/**
+ * @brief          설정 팝업에서 확정한 맵 표시 옵션을 기존 객체와 장치 오버레이에 적용합니다.
+ * @param settings 적용할 네 개 표시 옵션
+ */
+void DigitalTwinMapWidget::applyDisplaySettings(const DigitalTwinMapDisplaySettings& settings) {
+    displaySettings_ = settings;
+    deviceStatusMapOverlay_.setDisplaySettings(settings);
+
+    for (DemoVisualItem& visualItem : demoItems_) {
+        if (visualItem.trail) {
+            visualItem.trail->setVisible(settings.showMovementTrails);
+        }
+    }
+}
+
 void DigitalTwinMapWidget::applyTopViewFrame(TopViewFrameData frame) {
     if (frame.channelIndex < 0 || frame.channelIndex >= 4 || frame.sourceTimestamp <= 0) {
         qWarning() << "[DigitalTwinMapWidget] Invalid TopView frame" << frame.channelIndex
@@ -298,15 +318,22 @@ void DigitalTwinMapWidget::applyTopViewFrame(TopViewFrameData frame) {
     liveFrameSourceTimes_.insert(frame.channelIndex, frame.sourceTimestamp);
     liveFrameArrivalTimes_.insert(frame.channelIndex, QDateTime::currentMSecsSinceEpoch());
     liveFrames_.insert(frame.channelIndex, std::move(frame));
-    rebuildLiveSnapshot();
+    if (!liveFrameRenderTimer_.isActive()) {
+        liveFrameRenderTimer_.start();
+    }
 }
 
 void DigitalTwinMapWidget::applyCentralEvent(CentralEventData event) {
-    if (event.channelIndex < 0 || event.channelIndex >= 4) {
+    if (event.channelIndex < 0 || event.channelIndex >= 4 || event.sourceTimestamp <= 0) {
         return;
     }
 
     const QString key = centralEventKey(event);
+    if (event.sourceTimestamp <= latestCentralEventSourceTimes_.value(key, 0)) {
+        return;
+    }
+    latestCentralEventSourceTimes_.insert(key, event.sourceTimestamp);
+
     if (event.active) {
         activeCentralEvents_.insert(key, std::move(event));
     } else {
@@ -318,6 +345,22 @@ void DigitalTwinMapWidget::applyCentralEvent(CentralEventData event) {
     } else if (dangerAlertOverlay_) {
         dangerAlertOverlay_->setActive(hasActiveCentralDanger());
     }
+}
+
+/**
+ * @brief           MQTT에서 확인된 채널별 장치 상태를 맵 오버레이에 반영합니다.
+ * @param statuses  이번 UI 주기에 변경된 장치 상태 목록
+ */
+void DigitalTwinMapWidget::applyDeviceChannelStatuses(QVector<DeviceChannelStatus> statuses) {
+    deviceStatusMapOverlay_.setChannelStatuses(statuses);
+}
+
+/**
+ * @brief            MQTT 연결 여부에 따라 맵 장치 아이콘의 신호 상태를 변경합니다.
+ * @param available  MQTT 브로커에 연결되어 있으면 true
+ */
+void DigitalTwinMapWidget::setDeviceSignalAvailable(bool available) {
+    deviceStatusMapOverlay_.setSignalAvailable(available);
 }
 
 void DigitalTwinMapWidget::rebuildLiveSnapshot() {
@@ -465,6 +508,8 @@ void DigitalTwinMapWidget::setupScene() {
     demoItems_.clear();
     visualItemIndexes_.clear();
     mapRect_ = sceneBuilder_->build(&scene_);
+    deviceStatusMapOverlay_.initialize(&scene_);
+    deviceStatusMapOverlay_.setDisplaySettings(displaySettings_);
 
     if (dangerAlertOverlay_) {
         dangerAlertOverlay_->setActive(false);
@@ -567,6 +612,7 @@ void DigitalTwinMapWidget::createVisualItem(const DigitalTwinObject& object) {
     visualItem.trail = scene_.addPath(QPainterPath(), trailPen);
     visualItem.trail->setOpacity(0.55);
     visualItem.trail->setZValue(3.0);
+    visualItem.trail->setVisible(displaySettings_.showMovementTrails);
 
     visualItem.label = scene_.addSimpleText(object.objectId);
     visualItem.label->setScale(0.9);

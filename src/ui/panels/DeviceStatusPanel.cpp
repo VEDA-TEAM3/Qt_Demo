@@ -22,30 +22,16 @@ bool statusesEqual(const DeviceChannelStatus& left, const DeviceChannelStatus& r
            left.detail == right.detail && left.confirmedSourceTimestamp == right.confirmedSourceTimestamp;
 }
 
-QString feedbackHealthProperty(DeviceFeedbackHealth health) {
-    switch (health) {
-        case DeviceFeedbackHealth::Confirmed:
-            return QStringLiteral("confirmed");
-        case DeviceFeedbackHealth::Failed:
-            return QStringLiteral("failed");
-        case DeviceFeedbackHealth::Unknown:
-            return QStringLiteral("unknown");
+QString channelHealthProperty(const DeviceChannelStatus& status) {
+    if (status.feedbackHealth == DeviceFeedbackHealth::Failed || status.sensorHealth == SensorHealth::Offline) {
+        return QStringLiteral("failed");
     }
 
-    return QStringLiteral("unknown");
-}
-
-QString sensorHealthProperty(SensorHealth health) {
-    switch (health) {
-        case SensorHealth::Online:
-            return QStringLiteral("online");
-        case SensorHealth::Offline:
-            return QStringLiteral("offline");
-        case SensorHealth::Unknown:
-            return QStringLiteral("unknown");
+    if (!status.hasConfirmedState || status.feedbackHealth == DeviceFeedbackHealth::Unknown) {
+        return QStringLiteral("unknown");
     }
 
-    return QStringLiteral("unknown");
+    return QStringLiteral("confirmed");
 }
 
 }  // namespace
@@ -253,19 +239,12 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     setSegmentActive(widgets.buzzerOffLabel, outputsKnown && !status.outputs.buzzer);
     setSegmentActive(widgets.buzzerOnLabel, outputsKnown && status.outputs.buzzer);
 
-    const QString healthProperty = feedbackHealthProperty(status.feedbackHealth);
-    const QString sensorProperty = sensorHealthProperty(status.sensorHealth);
-
-    if (widgets.card->property("sensorHealth").toString() != sensorProperty) {
-        widgets.card->setProperty("sensorHealth", sensorProperty);
+    const QString healthProperty = channelHealthProperty(status);
+    if (widgets.card->property("healthState").toString() != healthProperty) {
+        widgets.card->setProperty("healthState", healthProperty);
         widgets.card->style()->unpolish(widgets.card);
         widgets.card->style()->polish(widgets.card);
-    }
-
-    if (widgets.card->property("feedbackHealth").toString() != healthProperty) {
-        widgets.card->setProperty("feedbackHealth", healthProperty);
-        widgets.card->style()->unpolish(widgets.card);
-        widgets.card->style()->polish(widgets.card);
+        widgets.card->update();
     }
 
     if (status.feedbackHealth == DeviceFeedbackHealth::Failed) {

@@ -10,7 +10,9 @@
 #include <memory>
 
 #include "model/DigitalTwinTypes.h"
+#include "model/DigitalTwinMapDisplaySettings.h"
 #include "model/MqttRealtimeData.h"
+#include "overlays/DeviceStatusMapOverlay.h"
 #include "overlays/OverlayManager.h"
 
 class DigitalTwinSimulationWorker;
@@ -32,10 +34,13 @@ public:
 
     void startDemo();
     void stopDemo();
+    void applyDisplaySettings(const DigitalTwinMapDisplaySettings& settings);
 
 public slots:
     void applyTopViewFrame(TopViewFrameData frame);
     void applyCentralEvent(CentralEventData event);
+    void applyDeviceChannelStatuses(QVector<DeviceChannelStatus> statuses);
+    void setDeviceSignalAvailable(bool available);
 
 signals:
     void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
@@ -76,6 +81,8 @@ private:
     QGraphicsScene scene_;
     QThread simulationThread_;
     OverlayManager overlayManager_;
+    DeviceStatusMapOverlay deviceStatusMapOverlay_;
+    DigitalTwinMapDisplaySettings displaySettings_;
     DangerAlertOverlay* dangerAlertOverlay_ = nullptr;
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
@@ -85,9 +92,11 @@ private:
     QHash<int, TopViewFrameData> liveFrames_;
     QHash<int, qint64> liveFrameArrivalTimes_;
     QHash<int, qint64> liveFrameSourceTimes_;
+    QHash<QString, qint64> latestCentralEventSourceTimes_;
     QHash<QString, CentralEventData> activeCentralEvents_;
     QHash<QString, QPointF> previousLivePositions_;
     QTimer liveFrameExpiryTimer_;
+    QTimer liveFrameRenderTimer_;
     QRectF mapRect_;
     QRectF configuredWorldBounds_;
     QRectF automaticWorldBounds_;

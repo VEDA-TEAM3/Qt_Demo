@@ -74,7 +74,10 @@ QLabel#titleLabel {
 
 QLabel#dateLabel {
     color: #d5dfec;
+    font-family: "Segoe UI", "Malgun Gothic";
     font-size: 14px;
+    font-weight: 800;
+    min-width: 154px;
 }
 
 QLabel#systemStatusLabel {
@@ -129,6 +132,116 @@ QLabel#settingsLabel:hover {
     border-color: #78baff;
 }
 
+QWidget#mapSettingsDialog {
+    background-color: rgba(0, 7, 16, 205);
+}
+
+QFrame#mapSettingsDialogPanel {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #071728, stop:0.55 #09213a, stop:1 #061523);
+    border: 1px solid #2b8cff;
+    border-radius: 12px;
+}
+
+QLabel#mapSettingsTitleLabel {
+    color: #f5f9ff;
+    font-size: 24px;
+    font-weight: 900;
+}
+
+QPushButton#mapSettingsCloseButton {
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 44px;
+    max-height: 44px;
+    background-color: #0d2239;
+    border: 1px solid #315578;
+    border-radius: 8px;
+    color: #f4f8ff;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+QPushButton#mapSettingsCloseButton:hover {
+    background-color: #173b5f;
+    border-color: #69b5ff;
+}
+
+QFrame#mapSettingsOptionsFrame {
+    background-color: rgba(9, 29, 50, 190);
+    border: 1px solid #355b7e;
+    border-radius: 9px;
+}
+
+QLabel#mapSettingsSectionLabel {
+    color: #50b7ff;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+QCheckBox#mapSettingsOption {
+    color: #e9f2ff;
+    background-color: transparent;
+    border: 0;
+    spacing: 12px;
+    min-height: 42px;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+QCheckBox#mapSettingsOption::indicator {
+    width: 24px;
+    height: 24px;
+    border: 2px solid #496986;
+    border-radius: 5px;
+    background-color: #071522;
+}
+
+QCheckBox#mapSettingsOption::indicator:unchecked:hover {
+    border-color: #78baff;
+    background-color: #0d2841;
+}
+
+QCheckBox#mapSettingsOption::indicator:checked {
+    border-color: #70c1ff;
+    background-color: #167ff0;
+}
+
+QCheckBox#mapSettingsOption::indicator:checked:hover {
+    border-color: #b8e0ff;
+    background-color: #248eff;
+}
+
+QPushButton#mapSettingsCancelButton,
+QPushButton#mapSettingsApplyButton {
+    min-width: 138px;
+    min-height: 48px;
+    border-radius: 7px;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+QPushButton#mapSettingsCancelButton {
+    color: #e4edf8;
+    background-color: #0c2035;
+    border: 1px solid #3d6285;
+}
+
+QPushButton#mapSettingsCancelButton:hover {
+    background-color: #173652;
+    border-color: #6b9bc4;
+}
+
+QPushButton#mapSettingsApplyButton {
+    color: #ffffff;
+    background-color: #147cf0;
+    border: 1px solid #3ca0ff;
+}
+
+QPushButton#mapSettingsApplyButton:hover {
+    background-color: #258eff;
+    border-color: #84c7ff;
+}
+
 QFrame#topSectionFrame, QFrame#bottomSectionFrame {
     background-color: transparent;
     border: 0;
@@ -174,20 +287,12 @@ QFrame#deviceChannelCard {
     border-radius: 7px;
 }
 
-QFrame#deviceChannelCard[feedbackHealth="unknown"] {
-    border-color: #31475e;
-}
-
-QFrame#deviceChannelCard[sensorHealth="unknown"],
-QFrame#deviceChannelCard[sensorHealth="offline"] {
-    border-color: #ff5a5f;
-}
-
-QFrame#deviceChannelCard[sensorHealth="online"] {
+QFrame#deviceChannelCard[healthState="confirmed"] {
     border-color: #25527c;
 }
 
-QFrame#deviceChannelCard[feedbackHealth="failed"] {
+QFrame#deviceChannelCard[healthState="unknown"],
+QFrame#deviceChannelCard[healthState="failed"] {
     border-color: #ff5a5f;
 }
 

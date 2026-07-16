@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <QString>
 
 #include "network/DeviceStatusGateway.h"
@@ -7,6 +9,7 @@
 class QByteArray;
 class QMqttClient;
 class QTimer;
+class TopViewFrameDispatcher;
 
 struct MqttDeviceStatusConfig {
     QString host;
@@ -14,6 +17,7 @@ struct MqttDeviceStatusConfig {
     QString caCertificatePath;
     QString clientId;
     int keepAliveSeconds = 60;
+    bool debugLogging = true;
 
     static MqttDeviceStatusConfig fromEnvironment();
 };
@@ -33,10 +37,14 @@ private:
     void subscribeToTopics();
     void scheduleReconnect();
     void handleMessage(const QByteArray& payload, const QString& topic);
+    void logReceivedMessage(const QByteArray& payload, const QString& topic) const;
+    void logTopViewFrame(const QString& topic, const TopViewFrameData& frame);
     void emitProtocolError(QString detail);
 
     MqttDeviceStatusConfig config_;
     QMqttClient* client_ = nullptr;
     QTimer* reconnectTimer_ = nullptr;
+    TopViewFrameDispatcher* topViewDispatcher_ = nullptr;
+    std::array<qint64, 4> lastTopViewDebugLogMsec_{};
     bool stopping_ = false;
 };

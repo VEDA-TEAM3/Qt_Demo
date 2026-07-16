@@ -11,6 +11,7 @@ The Qt client consumes the wire formats used by the supplied broker, command cli
 | `veda/qt/event` | `channelId` 1..4 | 0..3 |
 | `veda/ch/{ch}/alive` | topic `ch` 0..3 | 0..3 |
 | TopView | topic/payload `ch` 0..3 | 0..3 |
+| Vision detections | topic/channelId 1..4 | reserved for debug only |
 
 The central broker server rejects `channelId <= 0`, so central status and event messages must never be interpreted as zero-based values. The previous implementation did that and displayed wire channel 1 on `CH 02` while rejecting wire channel 4.
 
@@ -22,6 +23,7 @@ The central broker server rejects `channelId <= 0`, so central status and event 
 - `veda/ch/+/topview` (QoS 0, direct `MqttTopViewSink` path)
 - `veda/qt/ch/+/topview` (QoS 0, central relay path)
 - `veda/qt/event` (QoS 1)
+- `veda/vision/+/detections` (QoS 0, debug receipt only)
 
 The direct and relayed TopView topics can be enabled at the same time. Qt drops an equal or older `ts` per channel, so a relayed copy of a direct frame is not rendered twice.
 
@@ -43,7 +45,14 @@ VEDA_MQTT_HOST=100.73.128.114
 VEDA_MQTT_PORT=8883
 VEDA_MQTT_CA_FILE=/etc/veda/certs/ca.crt
 VEDA_MQTT_CLIENT_ID=<optional unique id>
+VEDA_MQTT_DEBUG=1
 ```
+
+`VEDA_MQTT_DEBUG=1` prints connection, subscription, status payload, and rate-limited TopView summaries.
+Set it to `0` to disable MQTT console logging. TopView logging is limited to once per second per channel so
+debug output does not flood the UI and video threads.
+Vision detections currently print the received topic and payload for protocol verification only; they are not
+connected to a video overlay yet.
 
 TopView positions are world coordinates. For a stable production map, set the calibrated world extent:
 

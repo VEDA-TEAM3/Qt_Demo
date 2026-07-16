@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QTimer>
 #include <QVector>
 #include <memory>
 
+#include "model/DigitalTwinMapDisplaySettings.h"
 #include "model/StreamConfig.h"
 
 class ClickableVideoWidget;
@@ -14,8 +16,10 @@ class DeviceStatusPanel;
 class DeviceStatusService;
 class EventLogPanel;
 class ObjectListPanel;
+class QEvent;
 class QFrame;
 class QLabel;
+class MapSettingsDialog;
 class QResizeEvent;
 class QShowEvent;
 class StreamReceiverFactory;
@@ -39,6 +43,7 @@ public:
     ~MainWindow() override;
 
 protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
 
@@ -48,13 +53,16 @@ private:
     void setupDashboardPanelCoordinator();
     void setupDeviceStatusService();
     void setupTopBarStatuses();
+    void setupClock();
     void setupStreamConfigs();
     void setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory);
     void setupVideoViewEvents();
+    void openMapSettingsDialog();
 
     void updateDashboardAdaptiveSizes();
     void updateSystemStatus(bool connected);
     void updateStreamConnectionStatus();
+    void updateCurrentDateTime();
     void setTopBarStatus(QLabel* label, const QString& title, const QString& status, const QString& color);
 
     void toggleExpandVideo(QWidget* targetWidget);
@@ -78,7 +86,10 @@ private:
     DeviceStatusPanel* deviceStatusPanel_ = nullptr;
     EventLogPanel* eventLogPanel_ = nullptr;
     ObjectListPanel* objectListPanel_ = nullptr;
+    MapSettingsDialog* mapSettingsDialog_ = nullptr;
     QWidget* expandedWidget_ = nullptr;
+    QTimer clockTimer_;
+    DigitalTwinMapDisplaySettings mapDisplaySettings_;
 
     bool streamSessionStarted_ = false;
 };

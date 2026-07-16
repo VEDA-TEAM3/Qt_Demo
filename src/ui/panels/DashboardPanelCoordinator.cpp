@@ -76,15 +76,19 @@ void DashboardPanelCoordinator::consumeCentralEvent(CentralEventData event) {
     }
     latestCentralEventTimestamps_.insert(key, event.sourceTimestamp);
 
+    if (!event.active) {
+        return;
+    }
+
     EventLogEntry entry;
     entry.time = QDateTime::fromMSecsSinceEpoch(event.sourceTimestamp).time();
     entry.area = QStringLiteral("CH-%1").arg(event.channelIndex + 1, 2, 10, QLatin1Char('0'));
     entry.objectText = event.eventType;
 
-    if (event.active && event.severity >= 3) {
+    if (event.severity >= 3) {
         entry.riskLevel = EventLogRiskLevel::Danger;
         entry.action = EventLogAction::DangerAlertActivated;
-    } else if (event.active && event.severity > 0) {
+    } else if (event.severity > 0) {
         entry.riskLevel = EventLogRiskLevel::Warning;
         entry.action = EventLogAction::WarningAlertActivated;
     } else {

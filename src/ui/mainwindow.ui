@@ -113,14 +113,14 @@
          <item>
           <widget class="QLabel" name="systemStatusLabel">
            <property name="text">
-            <string>시스템 상태</string>
+            <string>통신 상태</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QLabel" name="connectionStatusLabel">
            <property name="text">
-            <string>연결 상태</string>
+            <string>CCTV 상태</string>
            </property>
           </widget>
          </item>
@@ -216,7 +216,7 @@
                  </sizepolicy>
                 </property>
                 <property name="text">
-                 <string>전체 구역</string>
+                 <string>전체 채널</string>
                 </property>
                </widget>
               </item>

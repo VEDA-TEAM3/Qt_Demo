@@ -197,9 +197,7 @@ void DeviceStatusService::handleAcknowledgedFeedback(const DeviceStatusReport& r
 
     DeviceChannelStatus status = channelStatuses_.value(report.channelIndex);
     status.channelIndex = report.channelIndex;
-    status.feedbackHealth = DeviceFeedbackHealth::Confirmed;
     status.detail = report.detail;
-    status.confirmedSourceTimestamp = report.sourceTimestamp;
 
     channelStatuses_.insert(status.channelIndex, status);
     queueChannelStatus(std::move(status));

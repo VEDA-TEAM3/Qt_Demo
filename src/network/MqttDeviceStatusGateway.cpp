@@ -1,6 +1,9 @@
 #include "network/MqttDeviceStatusGateway.h"
 
+#include "network/TopViewFrameDispatcher.h"
+
 #include <QDateTime>
+#include <QDebug>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -24,11 +27,14 @@ constexpr auto sensorAliveTopic = "veda/ch/+/alive";
 constexpr auto directTopViewTopic = "veda/ch/+/topview";
 constexpr auto relayedTopViewTopic = "veda/qt/ch/+/topview";
 constexpr auto centralEventTopic = "veda/qt/event";
+constexpr auto visionDetectionsTopic = "veda/vision/+/detections";
 constexpr int statusQos = 1;
 constexpr int topViewQos = 0;
 constexpr int reconnectIntervalMsec = 3000;
 constexpr int deviceChannelCount = 4;
 constexpr int protocolVersion = 1;
+constexpr int topViewDebugLogIntervalMsec = 1000;
+constexpr qsizetype maximumDebugPayloadLength = 512;
 
 enum class StatusProtocol {
     Controller,
@@ -38,6 +44,38 @@ enum class StatusProtocol {
 QString environmentValue(const QProcessEnvironment& environment, const QString& name, const QString& fallback) {
     const QString value = environment.value(name).trimmed();
     return value.isEmpty() ? fallback : value;
+}
+
+bool environmentFlag(const QProcessEnvironment& environment, const QString& name, bool fallback) {
+    const QString value = environment.value(name).trimmed().toLower();
+    if (value.isEmpty()) {
+        return fallback;
+    }
+
+    if (value == QStringLiteral("1") || value == QStringLiteral("true") || value == QStringLiteral("on") ||
+        value == QStringLiteral("yes")) {
+        return true;
+    }
+
+    if (value == QStringLiteral("0") || value == QStringLiteral("false") || value == QStringLiteral("off") ||
+        value == QStringLiteral("no")) {
+        return false;
+    }
+
+    return fallback;
+}
+
+QString debugPayloadText(const QByteArray& payload) {
+    QString text = QString::fromUtf8(payload).simplified();
+    if (text.size() > maximumDebugPayloadLength) {
+        text = text.left(maximumDebugPayloadLength) + QStringLiteral("...");
+    }
+    return text;
+}
+
+bool isVisionDetectionsTopic(const QString& topic) {
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/vision/[1-4]/detections$"));
+    return topicPattern.match(topic).hasMatch();
 }
 
 bool readInteger(const QJsonObject& object, const QString& name, qint64& value) {
@@ -386,6 +424,7 @@ MqttDeviceStatusConfig MqttDeviceStatusConfig::fromEnvironment() {
     config.clientId =
         environmentValue(environment, QStringLiteral("VEDA_MQTT_CLIENT_ID"),
                          QStringLiteral("qt-device-status-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    config.debugLogging = environmentFlag(environment, QStringLiteral("VEDA_MQTT_DEBUG"), true);
 
     bool portValid = false;
     const uint configuredPort =
@@ -400,6 +439,10 @@ MqttDeviceStatusGateway::MqttDeviceStatusGateway(MqttDeviceStatusConfig config, 
     reconnectTimer_->setInterval(reconnectIntervalMsec);
     reconnectTimer_->setSingleShot(true);
     connect(reconnectTimer_, &QTimer::timeout, this, &MqttDeviceStatusGateway::connectToBroker);
+
+    topViewDispatcher_ = new TopViewFrameDispatcher(this);
+    connect(topViewDispatcher_, &TopViewFrameDispatcher::frameReady, this,
+            &DeviceStatusGateway::topViewFrameReceived);
 }
 
 void MqttDeviceStatusGateway::start() {
@@ -408,6 +451,8 @@ void MqttDeviceStatusGateway::start() {
     }
 
     stopping_ = false;
+    lastTopViewDebugLogMsec_.fill(0);
+    topViewDispatcher_->start();
     client_ = new QMqttClient(this);
     client_->setHostname(config_.host);
     client_->setPort(config_.port);
@@ -416,10 +461,18 @@ void MqttDeviceStatusGateway::start() {
     client_->setCleanSession(true);
 
     connect(client_, &QMqttClient::connected, this, [this]() {
+        if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT] Connected host=%1 port=%2")
+                                     .arg(config_.host)
+                                     .arg(config_.port);
+        }
         emit brokerConnectionChanged(true);
         subscribeToTopics();
     });
     connect(client_, &QMqttClient::disconnected, this, [this]() {
+        if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT] Disconnected");
+        }
         emit brokerConnectionChanged(false);
         scheduleReconnect();
     });
@@ -438,6 +491,7 @@ void MqttDeviceStatusGateway::start() {
 void MqttDeviceStatusGateway::stop() {
     stopping_ = true;
     reconnectTimer_->stop();
+    topViewDispatcher_->stop();
 
     if (!client_) {
         return;
@@ -469,6 +523,12 @@ void MqttDeviceStatusGateway::connectToBroker() {
     sslConfiguration.setCaCertificates(certificates);
     sslConfiguration.setPeerVerifyMode(QSslSocket::VerifyPeer);
     sslConfiguration.setProtocol(QSsl::TlsV1_2OrLater);
+    if (config_.debugLogging) {
+        qInfo().noquote() << QStringLiteral("[MQTT] Connecting host=%1 port=%2 clientId=%3")
+                                 .arg(config_.host)
+                                 .arg(config_.port)
+                                 .arg(config_.clientId);
+    }
     client_->connectToHostEncrypted(sslConfiguration);
 }
 
@@ -481,11 +541,16 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
                          {sensorAliveTopic, statusQos},
                          {directTopViewTopic, topViewQos},
                          {relayedTopViewTopic, topViewQos},
-                         {centralEventTopic, statusQos}};
+                         {centralEventTopic, statusQos},
+                         {visionDetectionsTopic, topViewQos}};
 
     for (const auto& subscription : subscriptions) {
         if (!client_->subscribe(QString::fromLatin1(subscription.topic), subscription.qos)) {
             emitProtocolError(QStringLiteral("MQTT subscribe failed: %1").arg(QString::fromLatin1(subscription.topic)));
+        } else if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT SUB] topic=%1 qos=%2")
+                                     .arg(QString::fromLatin1(subscription.topic))
+                                     .arg(static_cast<int>(subscription.qos));
         }
     }
 }
@@ -497,6 +562,19 @@ void MqttDeviceStatusGateway::scheduleReconnect() {
 }
 
 void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QString& topic) {
+    if (config_.debugLogging && !topic.endsWith(QStringLiteral("/topview"))) {
+        logReceivedMessage(payload, topic);
+    }
+
+    if (isVisionDetectionsTopic(topic)) {
+        if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT VISION] Detection payload received: topic=%1 bytes=%2")
+                                     .arg(topic)
+                                     .arg(payload.size());
+        }
+        return;
+    }
+
     if (topic == QString::fromLatin1(centralEventTopic)) {
         CentralEventData event;
         QString error;
@@ -528,7 +606,8 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
             return;
         }
 
-        emit topViewFrameReceived(std::move(frame));
+        logTopViewFrame(topic, frame);
+        topViewDispatcher_->submitFrame(std::move(frame));
         return;
     }
 
@@ -552,7 +631,47 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
     emit reportReceived(std::move(report));
 }
 
+/**
+ * @brief          상태 및 이벤트 MQTT 메시지를 읽기 쉬운 텍스트로 출력합니다.
+ * @param payload  MQTT 페이로드
+ * @param topic    수신한 MQTT 토픽
+ */
+void MqttDeviceStatusGateway::logReceivedMessage(const QByteArray& payload, const QString& topic) const {
+    qInfo().noquote() << QStringLiteral("[MQTT RX] topic=%1 bytes=%2 payload=%3")
+                             .arg(topic)
+                             .arg(payload.size())
+                             .arg(debugPayloadText(payload));
+}
+
+/**
+ * @brief        고빈도 TopView 수신 상태를 채널별 제한 주기로 출력합니다.
+ * @param topic  수신한 MQTT 토픽
+ * @param frame  검증을 통과한 TopView 프레임
+ */
+void MqttDeviceStatusGateway::logTopViewFrame(const QString& topic, const TopViewFrameData& frame) {
+    if (!config_.debugLogging || frame.channelIndex < 0 || frame.channelIndex >= deviceChannelCount) {
+        return;
+    }
+
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    qint64& lastLogMsec = lastTopViewDebugLogMsec_[static_cast<std::size_t>(frame.channelIndex)];
+    if (lastLogMsec > 0 && nowMsec - lastLogMsec < topViewDebugLogIntervalMsec) {
+        return;
+    }
+
+    lastLogMsec = nowMsec;
+    qInfo().noquote() << QStringLiteral("[MQTT TOPVIEW] topic=%1 channel=%2 ts=%3 objects=%4")
+                             .arg(topic)
+                             .arg(frame.channelIndex)
+                             .arg(frame.sourceTimestamp)
+                             .arg(frame.objects.size());
+}
+
 void MqttDeviceStatusGateway::emitProtocolError(QString detail) {
+    if (config_.debugLogging) {
+        qWarning().noquote() << QStringLiteral("[MQTT ERROR] %1").arg(detail);
+    }
+
     DeviceStatusReport report;
     report.type = DeviceStatusReportType::ProtocolError;
     report.sourceTimestamp = QDateTime::currentMSecsSinceEpoch();
