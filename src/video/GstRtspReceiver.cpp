@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <vector>
 
 namespace {
 constexpr int busPollIntervalMsec = 200;
@@ -180,7 +181,7 @@ qint64 headBlurSyncOffsetMsec() {
     return offset;
 }
 
-void applyMosaic(GstVideoFrame& frame, const QRectF& sourceBox) {
+void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
     if (GST_VIDEO_FRAME_FORMAT(&frame) != GST_VIDEO_FORMAT_BGRA) {
         return;
     }
@@ -208,42 +209,62 @@ void applyMosaic(GstVideoFrame& frame, const QRectF& sourceBox) {
 
     auto* pixels = static_cast<guint8*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
     const int stride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0);
-    const int blockSize = std::clamp(std::min(regionWidth, regionHeight) / 6, 10, 32);
+    const int radius = std::clamp(std::min(regionWidth, regionHeight) / 8, 4, 18);
+    constexpr int colorChannels = 3;
+    std::vector<guint8> horizontal(static_cast<size_t>(regionWidth) * regionHeight * colorChannels);
 
-    for (int blockTop = top; blockTop < bottom; blockTop += blockSize) {
-        const int blockBottom = std::min(blockTop + blockSize, bottom);
-        for (int blockLeft = left; blockLeft < right; blockLeft += blockSize) {
-            const int blockRight = std::min(blockLeft + blockSize, right);
-            quint64 blue = 0;
-            quint64 green = 0;
-            quint64 red = 0;
-            quint64 count = 0;
+    // Horizontal pass. A sliding window keeps the cost proportional to the BBOX area.
+    for (int localY = 0; localY < regionHeight; ++localY) {
+        const guint8* sourceRow = pixels + (top + localY) * stride + left * 4;
+        for (int channel = 0; channel < colorChannels; ++channel) {
+            quint64 sum = 0;
+            int windowEnd = std::min(radius, regionWidth - 1);
+            for (int x = 0; x <= windowEnd; ++x) {
+                sum += sourceRow[x * 4 + channel];
+            }
 
-            for (int y = blockTop; y < blockBottom; ++y) {
-                const guint8* row = pixels + y * stride;
-                for (int x = blockLeft; x < blockRight; ++x) {
-                    const guint8* pixel = row + x * 4;
-                    blue += pixel[0];
-                    green += pixel[1];
-                    red += pixel[2];
-                    ++count;
+            for (int x = 0; x < regionWidth; ++x) {
+                const int windowStart = std::max(0, x - radius);
+                windowEnd = std::min(regionWidth - 1, x + radius);
+                const int count = windowEnd - windowStart + 1;
+                horizontal[(static_cast<size_t>(localY) * regionWidth + x) * colorChannels + channel] =
+                    static_cast<guint8>(sum / static_cast<quint64>(count));
+
+                const int removeX = x - radius;
+                const int addX = x + radius + 1;
+                if (removeX >= 0) {
+                    sum -= sourceRow[removeX * 4 + channel];
+                }
+                if (addX < regionWidth) {
+                    sum += sourceRow[addX * 4 + channel];
                 }
             }
+        }
+    }
 
-            if (count == 0) {
-                continue;
+    // Vertical pass writes the blurred BGR channels back; alpha remains unchanged.
+    for (int localX = 0; localX < regionWidth; ++localX) {
+        for (int channel = 0; channel < colorChannels; ++channel) {
+            quint64 sum = 0;
+            int windowEnd = std::min(radius, regionHeight - 1);
+            for (int y = 0; y <= windowEnd; ++y) {
+                sum += horizontal[(static_cast<size_t>(y) * regionWidth + localX) * colorChannels + channel];
             }
-            const guint8 averageBlue = static_cast<guint8>(blue / count);
-            const guint8 averageGreen = static_cast<guint8>(green / count);
-            const guint8 averageRed = static_cast<guint8>(red / count);
 
-            for (int y = blockTop; y < blockBottom; ++y) {
-                guint8* row = pixels + y * stride;
-                for (int x = blockLeft; x < blockRight; ++x) {
-                    guint8* pixel = row + x * 4;
-                    pixel[0] = averageBlue;
-                    pixel[1] = averageGreen;
-                    pixel[2] = averageRed;
+            for (int localY = 0; localY < regionHeight; ++localY) {
+                const int windowStart = std::max(0, localY - radius);
+                windowEnd = std::min(regionHeight - 1, localY + radius);
+                const int count = windowEnd - windowStart + 1;
+                guint8* targetPixel = pixels + (top + localY) * stride + (left + localX) * 4;
+                targetPixel[channel] = static_cast<guint8>(sum / static_cast<quint64>(count));
+
+                const int removeY = localY - radius;
+                const int addY = localY + radius + 1;
+                if (removeY >= 0) {
+                    sum -= horizontal[(static_cast<size_t>(removeY) * regionWidth + localX) * colorChannels + channel];
+                }
+                if (addY < regionHeight) {
+                    sum += horizontal[(static_cast<size_t>(addY) * regionWidth + localX) * colorChannels + channel];
                 }
             }
         }
@@ -794,7 +815,7 @@ void GstRtspReceiver::applyHeadBlur(GstPad* pad, GstPadProbeInfo* info) {
     }
 
     for (const QRectF& region : regions) {
-        applyMosaic(videoFrame, region);
+        applyBoxBlur(videoFrame, region);
     }
     gst_video_frame_unmap(&videoFrame);
 }
