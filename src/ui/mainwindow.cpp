@@ -1,7 +1,5 @@
 #include "ui/mainwindow.h"
 
-#include <algorithm>
-
 #include <QDateTime>
 #include <QDebug>
 #include <QEvent>
@@ -19,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QVector>
 #include <QWidget>
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -94,8 +93,7 @@ void MainWindow::setupDashboardLayout() {
 
     const QPixmap settingsIcon(QStringLiteral(":/icons/config_icon.png"));
     ui_->settingsLabel->setText({});
-    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(29, 29), Qt::KeepAspectRatio,
-                                                      Qt::SmoothTransformation));
+    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(29, 29), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     ui_->settingsLabel->setAlignment(Qt::AlignCenter);
     ui_->settingsLabel->setFixedSize(65, 49);
     ui_->settingsLabel->setFocusPolicy(Qt::StrongFocus);
@@ -197,9 +195,9 @@ void MainWindow::updateSystemStatus(bool connected) {
  * @brief   네 CCTV 채널이 모두 첫 프레임을 수신했는지 상단 연결 상태에 반영합니다.
  */
 void MainWindow::updateStreamConnectionStatus() {
-    const bool allStreamsReady = streamChannelReady_.size() == requiredCctvChannelCount &&
-                                 std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(),
-                                             [](bool ready) { return ready; });
+    const bool allStreamsReady =
+        streamChannelReady_.size() == requiredCctvChannelCount &&
+        std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(), [](bool ready) { return ready; });
 
     setTopBarStatus(ui_->connectionStatusLabel, QStringLiteral("CCTV 상태"),
                     allStreamsReady ? QStringLiteral("● 정상") : QStringLiteral("● 연결 중"),
@@ -284,23 +282,20 @@ void MainWindow::setupDeviceStatusService() {
             &MainWindow::updateSystemStatus, Qt::QueuedConnection);
 
     if (ui_->digitalTwinMapWidget) {
-        connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::setDeviceSignalAvailable,
-                Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyDeviceChannelStatuses,
-                Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::setDeviceSignalAvailable, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyDeviceChannelStatuses, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
     }
 
     if (dashboardPanelCoordinator_) {
         dashboardPanelCoordinator_->bindDeviceStatusService(deviceStatusService_.get());
-        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
-                dashboardPanelCoordinator_, &DashboardPanelCoordinator::consumeCentralEvent,
-                Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, dashboardPanelCoordinator_,
+                &DashboardPanelCoordinator::consumeCentralEvent, Qt::QueuedConnection);
     }
 
     deviceStatusService_->start();
@@ -433,6 +428,11 @@ void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory
     }
 
     streamSessionManager_ = new StreamSessionManager(std::move(receiverFactory), this);
+
+    if (deviceStatusService_) {
+        connect(deviceStatusService_.get(), &DeviceStatusService::headBlurFrameReceived, streamSessionManager_,
+                &StreamSessionManager::submitHeadBlurFrame, Qt::QueuedConnection);
+    }
 
     connect(streamSessionManager_, &StreamSessionManager::loadingChanged, this, [this](int channelIndex, bool loading) {
         if (channelIndex < 0 || channelIndex >= videoWidgets_.size()) {

@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QString>
 
+#include "model/MqttRealtimeData.h"
+
 class QThread;
 
 class StreamReceiver : public QObject {
@@ -15,6 +17,7 @@ public:
     ~StreamReceiver() override = default;
 
     virtual void setUrl(const QString& url) = 0;
+    virtual void setHeadBlurFrame(HeadBlurFrameData frame) = 0;
     virtual void moveInternalObjectsToThread(QThread* thread) = 0;
     virtual void start() = 0;
     virtual void stop() = 0;

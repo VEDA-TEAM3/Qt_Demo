@@ -1,16 +1,21 @@
 #include "video/GstRtspReceiver.h"
 
 #include <gst/rtsp/gstrtsptransport.h>
+#include <gst/video/video-frame.h>
 #include <gst/video/videooverlay.h>
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QDebug>
 #include <QMetaObject>
+#include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <iterator>
 
 namespace {
 constexpr int busPollIntervalMsec = 200;
@@ -31,6 +36,10 @@ constexpr qint64 renderQueueMaxTimeNsec = 200LL * 1000 * 1000;
 
 constexpr qint64 minimumLoadingMsec = 700;
 constexpr int reconnectSpreadMsec = 3000;
+constexpr qint64 headBlurHistoryMsec = 10000;
+constexpr qint64 headBlurMatchToleranceMsec = 1500;
+constexpr qsizetype maximumHeadBlurHistorySize = 300;
+constexpr double headBlurPaddingRatio = 0.18;
 
 /**
  * @brief             지정한 GStreamer element factory가 설치되어 있는지 확인합니다.
@@ -160,6 +169,86 @@ bool isAuthenticationFailure(const QString& errorText) {
     return errorText.contains(QStringLiteral("account blocked"), Qt::CaseInsensitive) ||
            errorText.contains(QStringLiteral("authentication failed"), Qt::CaseInsensitive);
 }
+
+qint64 headBlurSyncOffsetMsec() {
+    static const qint64 offset = []() {
+        bool valid = false;
+        const int configured = qEnvironmentVariableIntValue("QTCCTV_BLUR_SYNC_OFFSET_MS", &valid);
+        return valid && configured >= 0 && configured <= 10000 ? static_cast<qint64>(configured)
+                                                               : static_cast<qint64>(rtspLatencyMsec);
+    }();
+    return offset;
+}
+
+void applyMosaic(GstVideoFrame& frame, const QRectF& sourceBox) {
+    if (GST_VIDEO_FRAME_FORMAT(&frame) != GST_VIDEO_FORMAT_BGRA) {
+        return;
+    }
+
+    const int frameWidth = GST_VIDEO_FRAME_WIDTH(&frame);
+    const int frameHeight = GST_VIDEO_FRAME_HEIGHT(&frame);
+    if (frameWidth <= 0 || frameHeight <= 0) {
+        return;
+    }
+
+    const double paddingX = sourceBox.width() * headBlurPaddingRatio;
+    const double paddingY = sourceBox.height() * headBlurPaddingRatio;
+    const QRectF paddedBox =
+        sourceBox.adjusted(-paddingX, -paddingY, paddingX, paddingY).intersected(QRectF(0.0, 0.0, 1.0, 1.0));
+
+    const int left = qBound(0, static_cast<int>(std::floor(paddedBox.left() * frameWidth)), frameWidth);
+    const int top = qBound(0, static_cast<int>(std::floor(paddedBox.top() * frameHeight)), frameHeight);
+    const int right = qBound(0, static_cast<int>(std::ceil(paddedBox.right() * frameWidth)), frameWidth);
+    const int bottom = qBound(0, static_cast<int>(std::ceil(paddedBox.bottom() * frameHeight)), frameHeight);
+    const int regionWidth = right - left;
+    const int regionHeight = bottom - top;
+    if (regionWidth < 2 || regionHeight < 2) {
+        return;
+    }
+
+    auto* pixels = static_cast<guint8*>(GST_VIDEO_FRAME_PLANE_DATA(&frame, 0));
+    const int stride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0);
+    const int blockSize = std::clamp(std::min(regionWidth, regionHeight) / 6, 10, 32);
+
+    for (int blockTop = top; blockTop < bottom; blockTop += blockSize) {
+        const int blockBottom = std::min(blockTop + blockSize, bottom);
+        for (int blockLeft = left; blockLeft < right; blockLeft += blockSize) {
+            const int blockRight = std::min(blockLeft + blockSize, right);
+            quint64 blue = 0;
+            quint64 green = 0;
+            quint64 red = 0;
+            quint64 count = 0;
+
+            for (int y = blockTop; y < blockBottom; ++y) {
+                const guint8* row = pixels + y * stride;
+                for (int x = blockLeft; x < blockRight; ++x) {
+                    const guint8* pixel = row + x * 4;
+                    blue += pixel[0];
+                    green += pixel[1];
+                    red += pixel[2];
+                    ++count;
+                }
+            }
+
+            if (count == 0) {
+                continue;
+            }
+            const guint8 averageBlue = static_cast<guint8>(blue / count);
+            const guint8 averageGreen = static_cast<guint8>(green / count);
+            const guint8 averageRed = static_cast<guint8>(red / count);
+
+            for (int y = blockTop; y < blockBottom; ++y) {
+                guint8* row = pixels + y * stride;
+                for (int x = blockLeft; x < blockRight; ++x) {
+                    guint8* pixel = row + x * 4;
+                    pixel[0] = averageBlue;
+                    pixel[1] = averageGreen;
+                    pixel[2] = averageRed;
+                }
+            }
+        }
+    }
+}
 }  // namespace
 
 /**
@@ -189,6 +278,34 @@ GstRtspReceiver::~GstRtspReceiver() { stop(); }
  * @param url  RTSP 주소
  */
 void GstRtspReceiver::setUrl(const QString& url) { url_ = url.trimmed(); }
+
+void GstRtspReceiver::setHeadBlurFrame(HeadBlurFrameData frame) {
+    if (frame.sourceTimestamp <= 0) {
+        return;
+    }
+
+    headBlurSourceToLocalOffsetMsec_.store(QDateTime::currentMSecsSinceEpoch() - frame.sourceTimestamp,
+                                           std::memory_order_relaxed);
+    headBlurClockOffsetReady_.store(true, std::memory_order_release);
+
+    QMutexLocker locker(&headBlurMutex_);
+    const auto position = std::lower_bound(
+        headBlurHistory_.begin(), headBlurHistory_.end(), frame.sourceTimestamp,
+        [](const HeadBlurFrameData& stored, qint64 timestamp) { return stored.sourceTimestamp < timestamp; });
+
+    if (position != headBlurHistory_.end() && position->sourceTimestamp == frame.sourceTimestamp) {
+        *position = std::move(frame);
+    } else {
+        headBlurHistory_.insert(position, std::move(frame));
+    }
+
+    const qint64 newestTimestamp = headBlurHistory_.constLast().sourceTimestamp;
+    while (!headBlurHistory_.isEmpty() &&
+           (headBlurHistory_.constFirst().sourceTimestamp < newestTimestamp - headBlurHistoryMsec ||
+            headBlurHistory_.size() > maximumHeadBlurHistorySize)) {
+        headBlurHistory_.removeFirst();
+    }
+}
 
 /**
  * @brief        수신기 본체와 자식 타이머를 지정한 worker 스레드로 이동합니다.
@@ -278,7 +395,7 @@ void GstRtspReceiver::startPipeline() {
             "rtph264depay name=depay request-keyframe=true wait-for-keyframe=true ! "
             "h264parse config-interval=-1 ! "
             "queue name=decodequeue silent=true max-size-buffers=%2 max-size-bytes=0 max-size-time=%3 ! "
-            "%1 ! "
+            "%1 ! videoconvert ! video/x-raw,format=BGRA ! "
             "queue name=renderqueue silent=true leaky=downstream max-size-buffers=%4 max-size-bytes=0 "
             "max-size-time=%5 ! "
             "identity name=framewatch silent=true signal-handoffs=false ! "
@@ -483,6 +600,10 @@ void GstRtspReceiver::teardownPipeline() {
     }
 
     windowHandle_ = 0;
+
+    QMutexLocker locker(&headBlurMutex_);
+    headBlurHistory_.clear();
+    headBlurClockOffsetReady_.store(false, std::memory_order_release);
 }
 
 /**
@@ -601,6 +722,83 @@ void GstRtspReceiver::markFirstFrame() {
     });
 }
 
+QVector<QRectF> GstRtspReceiver::headBlurRegionsFor(qint64 sourceTimestamp) const {
+    QMutexLocker locker(&headBlurMutex_);
+    if (headBlurHistory_.isEmpty()) {
+        return {};
+    }
+
+    const auto after = std::lower_bound(
+        headBlurHistory_.cbegin(), headBlurHistory_.cend(), sourceTimestamp,
+        [](const HeadBlurFrameData& frame, qint64 timestamp) { return frame.sourceTimestamp < timestamp; });
+
+    const HeadBlurFrameData* nearest = after == headBlurHistory_.cend() ? nullptr : &*after;
+    if (after != headBlurHistory_.cbegin()) {
+        const HeadBlurFrameData& before = *std::prev(after);
+        if (nearest == nullptr ||
+            sourceTimestamp - before.sourceTimestamp <= nearest->sourceTimestamp - sourceTimestamp) {
+            nearest = &before;
+        }
+    }
+    if (nearest == nullptr || std::llabs(nearest->sourceTimestamp - sourceTimestamp) > headBlurMatchToleranceMsec) {
+        return {};
+    }
+
+    QVector<QRectF> regions;
+    regions.reserve(nearest->regions.size());
+    for (const HeadBlurRegionData& region : nearest->regions) {
+        regions.append(region.normalizedBox);
+    }
+    return regions;
+}
+
+void GstRtspReceiver::applyHeadBlur(GstPad* pad, GstPadProbeInfo* info) {
+    if (!pad || !info) {
+        return;
+    }
+
+    if (!headBlurClockOffsetReady_.load(std::memory_order_acquire)) {
+        return;
+    }
+    const qint64 sourceToLocalOffset = headBlurSourceToLocalOffsetMsec_.load(std::memory_order_relaxed);
+    const qint64 targetTimestamp = QDateTime::currentMSecsSinceEpoch() - sourceToLocalOffset - headBlurSyncOffsetMsec();
+    const QVector<QRectF> regions = headBlurRegionsFor(targetTimestamp);
+    if (regions.isEmpty()) {
+        return;
+    }
+
+    GstBuffer* buffer = gst_pad_probe_info_get_buffer(info);
+    if (!buffer) {
+        return;
+    }
+
+    GstCaps* caps = gst_pad_get_current_caps(pad);
+    GstVideoInfo videoInfo;
+    const bool validVideoInfo = caps && gst_video_info_from_caps(&videoInfo, caps);
+    if (caps) {
+        gst_caps_unref(caps);
+    }
+    if (!validVideoInfo || GST_VIDEO_INFO_FORMAT(&videoInfo) != GST_VIDEO_FORMAT_BGRA) {
+        return;
+    }
+
+    GstBuffer* writableBuffer = gst_buffer_make_writable(buffer);
+    if (!writableBuffer) {
+        return;
+    }
+    GST_PAD_PROBE_INFO_DATA(info) = writableBuffer;
+
+    GstVideoFrame videoFrame;
+    if (!gst_video_frame_map(&videoFrame, &videoInfo, writableBuffer, GST_MAP_READWRITE)) {
+        return;
+    }
+
+    for (const QRectF& region : regions) {
+        applyMosaic(videoFrame, region);
+    }
+    gst_video_frame_unmap(&videoFrame);
+}
+
 /**
  * @brief   초기 패킷/프레임 수신 지연과 실행 중 frame stall을 감시합니다.
  */
@@ -671,12 +869,14 @@ void GstRtspReceiver::checkStall() {
  * @param userData   GstRtspReceiver 포인터
  * @return           pad probe 처리 결과
  */
-GstPadProbeReturn GstRtspReceiver::onFrameProbe(GstPad*, GstPadProbeInfo*, gpointer userData) {
+GstPadProbeReturn GstRtspReceiver::onFrameProbe(GstPad* pad, GstPadProbeInfo* info, gpointer userData) {
     auto* receiver = static_cast<GstRtspReceiver*>(userData);
 
     if (!receiver) {
         return GST_PAD_PROBE_OK;
     }
+
+    receiver->applyHeadBlur(pad, info);
 
     receiver->lastFrameTimeUsec_.store(g_get_monotonic_time(), std::memory_order_relaxed);
 
@@ -859,16 +1059,16 @@ GstBusSyncReply GstRtspReceiver::onBusSyncMessage(GstBus*, GstMessage* message, 
 QString GstRtspReceiver::decoderChain() const {
     const QByteArray decoderMode = qgetenv("QTCCTV_DECODER_MODE").trimmed().toLower();
 
-    if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec")) {
-        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec") && hasGstFactory("d3d11download")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true ! d3d11download";
     }
 
     if (hasGstFactory("avdec_h264")) {
         return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";
     }
 
-    if (hasGstFactory("d3d11h264dec")) {
-        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    if (hasGstFactory("d3d11h264dec") && hasGstFactory("d3d11download")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true ! d3d11download";
     }
 
     return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";

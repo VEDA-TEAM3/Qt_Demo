@@ -1,13 +1,14 @@
 #pragma once
 
-#include <memory>
+#include <QtGui/qwindowdefs.h>
 
 #include <QObject>
 #include <QString>
 #include <QVector>
-#include <QtGui/qwindowdefs.h>
 #include <QtGlobal>
+#include <memory>
 
+#include "model/MqttRealtimeData.h"
 #include "model/StreamConfig.h"
 
 class QThread;
@@ -43,8 +44,7 @@ public:
      * @param receiverFactory  채널별 StreamReceiver 생성 factory
      * @param parent           Qt 객체 소유권을 연결할 부모 객체
      */
-    explicit StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory,
-                                  QObject* parent = nullptr);
+    explicit StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory, QObject* parent = nullptr);
 
     /**
      * @brief 실행 중인 모든 수신기와 worker thread를 정리합니다.
@@ -68,6 +68,9 @@ public:
      * @brief 모든 수신기를 정지하고 worker thread를 종료합니다.
      */
     void stop();
+
+    /** 해당 채널 receiver에 최신 Head blur 좌표를 전달합니다. */
+    void submitHeadBlurFrame(HeadBlurFrameData frame);
 
 signals:
     /**

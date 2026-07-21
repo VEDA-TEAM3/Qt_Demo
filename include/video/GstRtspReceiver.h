@@ -4,8 +4,10 @@
 #include <gst/rtsp/gstrtspmessage.h>
 
 #include <QElapsedTimer>
+#include <QMutex>
 #include <QObject>
 #include <QString>
+#include <QVector>
 #include <atomic>
 
 #include "video/StreamReceiver.h"
@@ -21,6 +23,7 @@ public:
     ~GstRtspReceiver() override;
 
     void setUrl(const QString& url) override;
+    void setHeadBlurFrame(HeadBlurFrameData frame) override;
     void moveInternalObjectsToThread(QThread* thread) override;
     void start() override;
     void stop() override;
@@ -39,6 +42,8 @@ private:
     void checkStall();
 
     void markFirstPacket();
+    QVector<QRectF> headBlurRegionsFor(qint64 sourceTimestamp) const;
+    void applyHeadBlur(GstPad* pad, GstPadProbeInfo* info);
 
     static GstPadProbeReturn onFrameProbe(GstPad* pad, GstPadProbeInfo* info, gpointer userData);
 
@@ -77,4 +82,9 @@ private:
 
     bool firstAsyncDoneReported_ = false;
     bool firstFrameReported_ = false;
+
+    mutable QMutex headBlurMutex_;
+    QVector<HeadBlurFrameData> headBlurHistory_;
+    std::atomic<qint64> headBlurSourceToLocalOffsetMsec_{0};
+    std::atomic_bool headBlurClockOffsetReady_{false};
 };

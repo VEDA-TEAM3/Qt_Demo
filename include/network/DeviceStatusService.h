@@ -30,6 +30,7 @@ public:
 signals:
     void channelStatusesReceived(QVector<DeviceChannelStatus> statuses);
     void topViewFrameReceived(TopViewFrameData frame);
+    void headBlurFrameReceived(HeadBlurFrameData frame);
     void centralEventReceived(CentralEventData event);
     void brokerConnectionChanged(bool connected);
     void controllerOnlineChanged(bool online, QString node);

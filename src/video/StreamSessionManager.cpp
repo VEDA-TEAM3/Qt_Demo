@@ -75,6 +75,26 @@ void StreamSessionManager::stop() {
     stopWorkers();
 }
 
+void StreamSessionManager::submitHeadBlurFrame(HeadBlurFrameData frame) {
+    for (const ReceiverWorker& worker : receiverWorkers_) {
+        if (worker.config.channelIndex != frame.channelIndex || !worker.receiver || !worker.thread ||
+            !worker.thread->isRunning()) {
+            continue;
+        }
+
+        const auto receiver = worker.receiver;
+        const bool invoked = QMetaObject::invokeMethod(
+            receiver.get(),
+            [receiver, frame = std::move(frame)]() mutable { receiver->setHeadBlurFrame(std::move(frame)); },
+            Qt::QueuedConnection);
+        if (!invoked) {
+            qWarning() << "[StreamSessionManager] Failed to deliver Head blur metadata for channel"
+                       << worker.config.channelIndex;
+        }
+        return;
+    }
+}
+
 /**
  * @brief 등록된 출력 정보에 맞춰 receiver와 전용 worker thread를 생성합니다.
  */

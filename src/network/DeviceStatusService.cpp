@@ -27,6 +27,8 @@ DeviceStatusService::DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFact
     qRegisterMetaType<QVector<DeviceChannelStatus>>("QVector<DeviceChannelStatus>");
     qRegisterMetaType<TopViewObjectData>("TopViewObjectData");
     qRegisterMetaType<TopViewFrameData>("TopViewFrameData");
+    qRegisterMetaType<HeadBlurRegionData>("HeadBlurRegionData");
+    qRegisterMetaType<HeadBlurFrameData>("HeadBlurFrameData");
     qRegisterMetaType<CentralEventData>("CentralEventData");
     qRegisterMetaType<QVector<TopViewObjectData>>("QVector<TopViewObjectData>");
 
@@ -117,6 +119,8 @@ void DeviceStatusService::setupGateway() {
             Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::topViewFrameReceived, this,
             &DeviceStatusService::topViewFrameReceived, Qt::QueuedConnection);
+    connect(gateway_.get(), &DeviceStatusGateway::headBlurFrameReceived, this,
+            &DeviceStatusService::headBlurFrameReceived, Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::centralEventReceived, this,
             &DeviceStatusService::centralEventReceived, Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::brokerConnectionChanged, this,

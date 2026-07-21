@@ -1,7 +1,5 @@
 #include "network/MqttDeviceStatusGateway.h"
 
-#include "network/TopViewFrameDispatcher.h"
-
 #include <QDateTime>
 #include <QDebug>
 #include <QFileInfo>
@@ -19,6 +17,8 @@
 #include <QtMqtt/QMqttTopicName>
 #include <cmath>
 #include <utility>
+
+#include "network/TopViewFrameDispatcher.h"
 
 namespace {
 constexpr auto controllerStatusTopic = "veda/hw/+/status";
@@ -122,9 +122,8 @@ int channelIndexForStatus(qint64 channelId) {
 }
 
 int channelIndexFromControllerTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(
-        QStringLiteral("^veda/hw/(?:rpi|ch|channel)?([1-4])/status$"),
-        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/hw/(?:rpi|ch|channel)?([1-4])/status$"),
+                                                 QRegularExpression::CaseInsensitiveOption);
     const QRegularExpressionMatch match = topicPattern.match(topic);
     return match.hasMatch() ? match.captured(1).toInt() - 1 : -1;
 }
@@ -271,8 +270,7 @@ bool readFiniteNumber(const QJsonObject& object, const QString& name, double& va
 }
 
 bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopViewFrameData& frame, QString& error) {
-    static const QRegularExpression topicPattern(
-        QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
     const QRegularExpressionMatch match = topicPattern.match(topic);
     if (!match.hasMatch()) {
         error = QStringLiteral("Invalid TopView topic: %1").arg(topic);
@@ -361,6 +359,104 @@ bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopVie
     return true;
 }
 
+bool parseHeadBlurPayload(const QByteArray& payload, const QString& topic, HeadBlurFrameData& frame, QString& error) {
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/vision/([1-4])/detections$"));
+    const QRegularExpressionMatch match = topicPattern.match(topic);
+    if (!match.hasMatch()) {
+        error = QStringLiteral("Invalid Head blur topic: %1").arg(topic);
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        error = QStringLiteral("Invalid Head blur JSON on %1: %2").arg(topic, parseError.errorString());
+        return false;
+    }
+
+    const QJsonObject object = document.object();
+    qint64 version = 0;
+    qint64 timestamp = 0;
+    qint64 payloadChannel = 0;
+    if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
+        !readInteger(object, QStringLiteral("ts"), timestamp) || timestamp <= 0 ||
+        !readInteger(object, QStringLiteral("ch"), payloadChannel) || payloadChannel < 0 ||
+        payloadChannel >= deviceChannelCount) {
+        error = QStringLiteral("Invalid v, ts or ch field on %1").arg(topic);
+        return false;
+    }
+
+    const int topicChannelIndex = match.captured(1).toInt() - 1;
+    if (payloadChannel != topicChannelIndex) {
+        error = QStringLiteral("Head blur topic/payload channel mismatch on %1").arg(topic);
+        return false;
+    }
+
+    const QJsonValue blursValue = object.value(QStringLiteral("blurs"));
+    if (!blursValue.isArray()) {
+        error = QStringLiteral("Missing blurs array on %1").arg(topic);
+        return false;
+    }
+
+    frame.channelIndex = topicChannelIndex;
+    frame.sourceTimestamp = timestamp;
+
+    const QJsonArray blurs = blursValue.toArray();
+    frame.regions.reserve(blurs.size());
+    for (const QJsonValue& blurValue : blurs) {
+        if (!blurValue.isObject()) {
+            error = QStringLiteral("Blur targets must be JSON objects on %1").arg(topic);
+            return false;
+        }
+
+        const QJsonObject blur = blurValue.toObject();
+        const QJsonValue classValue = blur.value(QStringLiteral("cls"));
+        const QJsonValue boxValue = blur.value(QStringLiteral("box"));
+        qint64 id = 0;
+        if (!readInteger(blur, QStringLiteral("id"), id) || !classValue.isString() || !boxValue.isObject()) {
+            error = QStringLiteral("Invalid blur target fields on %1").arg(topic);
+            return false;
+        }
+
+        const QString objectClass = classValue.toString();
+        if (objectClass != QStringLiteral("Head") && objectClass != QStringLiteral("LicensePlate")) {
+            error = QStringLiteral("Unsupported blur class on %1: %2").arg(topic, objectClass);
+            return false;
+        }
+
+        const QJsonObject box = boxValue.toObject();
+        double left = 0.0;
+        double top = 0.0;
+        double right = 0.0;
+        double bottom = 0.0;
+        if (!readFiniteNumber(box, QStringLiteral("l"), left) || !readFiniteNumber(box, QStringLiteral("t"), top) ||
+            !readFiniteNumber(box, QStringLiteral("r"), right) || !readFiniteNumber(box, QStringLiteral("b"), bottom) ||
+            left >= right || top >= bottom) {
+            error = QStringLiteral("Invalid blur box on %1").arg(topic);
+            return false;
+        }
+
+        if (objectClass != QStringLiteral("Head")) {
+            continue;
+        }
+
+        const double clippedLeft = qBound(0.0, left, 1.0);
+        const double clippedTop = qBound(0.0, top, 1.0);
+        const double clippedRight = qBound(0.0, right, 1.0);
+        const double clippedBottom = qBound(0.0, bottom, 1.0);
+        if (clippedLeft >= clippedRight || clippedTop >= clippedBottom) {
+            continue;
+        }
+
+        HeadBlurRegionData region;
+        region.id = id;
+        region.normalizedBox = QRectF(QPointF(clippedLeft, clippedTop), QPointF(clippedRight, clippedBottom));
+        frame.regions.append(std::move(region));
+    }
+
+    return true;
+}
+
 bool parseCentralEventPayload(const QByteArray& payload, const QString& topic, CentralEventData& event,
                               QString& error) {
     QJsonParseError parseError;
@@ -441,8 +537,7 @@ MqttDeviceStatusGateway::MqttDeviceStatusGateway(MqttDeviceStatusConfig config, 
     connect(reconnectTimer_, &QTimer::timeout, this, &MqttDeviceStatusGateway::connectToBroker);
 
     topViewDispatcher_ = new TopViewFrameDispatcher(this);
-    connect(topViewDispatcher_, &TopViewFrameDispatcher::frameReady, this,
-            &DeviceStatusGateway::topViewFrameReceived);
+    connect(topViewDispatcher_, &TopViewFrameDispatcher::frameReady, this, &DeviceStatusGateway::topViewFrameReceived);
 }
 
 void MqttDeviceStatusGateway::start() {
@@ -462,9 +557,7 @@ void MqttDeviceStatusGateway::start() {
 
     connect(client_, &QMqttClient::connected, this, [this]() {
         if (config_.debugLogging) {
-            qInfo().noquote() << QStringLiteral("[MQTT] Connected host=%1 port=%2")
-                                     .arg(config_.host)
-                                     .arg(config_.port);
+            qInfo().noquote() << QStringLiteral("[MQTT] Connected host=%1 port=%2").arg(config_.host).arg(config_.port);
         }
         emit brokerConnectionChanged(true);
         subscribeToTopics();
@@ -536,12 +629,9 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
     const struct {
         const char* topic;
         quint8 qos;
-    } subscriptions[] = {{controllerStatusTopic, statusQos},
-                         {centralStatusTopic, statusQos},
-                         {sensorAliveTopic, statusQos},
-                         {directTopViewTopic, topViewQos},
-                         {relayedTopViewTopic, topViewQos},
-                         {centralEventTopic, statusQos},
+    } subscriptions[] = {{controllerStatusTopic, statusQos}, {centralStatusTopic, statusQos},
+                         {sensorAliveTopic, statusQos},      {directTopViewTopic, topViewQos},
+                         {relayedTopViewTopic, topViewQos},  {centralEventTopic, statusQos},
                          {visionDetectionsTopic, topViewQos}};
 
     for (const auto& subscription : subscriptions) {
@@ -567,11 +657,20 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
     }
 
     if (isVisionDetectionsTopic(topic)) {
-        if (config_.debugLogging) {
-            qInfo().noquote() << QStringLiteral("[MQTT VISION] Detection payload received: topic=%1 bytes=%2")
-                                     .arg(topic)
-                                     .arg(payload.size());
+        HeadBlurFrameData frame;
+        QString error;
+        if (!parseHeadBlurPayload(payload, topic, frame, error)) {
+            emitProtocolError(error);
+            return;
         }
+        if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT HEAD BLUR] topic=%1 channel=%2 ts=%3 regions=%4")
+                                     .arg(topic)
+                                     .arg(frame.channelIndex)
+                                     .arg(frame.sourceTimestamp)
+                                     .arg(frame.regions.size());
+        }
+        emit headBlurFrameReceived(std::move(frame));
         return;
     }
 
@@ -590,8 +689,8 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
         report.sourceTimestamp = event.sourceTimestamp;
         report.node = QStringLiteral("central-control-server");
         report.detail = event.detail;
-        report.type = event.hardwareOk ? DeviceStatusReportType::FeedbackConfirmed
-                                       : DeviceStatusReportType::FeedbackFailed;
+        report.type =
+            event.hardwareOk ? DeviceStatusReportType::FeedbackConfirmed : DeviceStatusReportType::FeedbackFailed;
         report.hasOutputState = event.hardwareOk;
         report.outputs = event.hardwareState;
         emit reportReceived(std::move(report));

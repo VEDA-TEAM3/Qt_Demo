@@ -11,7 +11,7 @@ The Qt client consumes the wire formats used by the supplied broker, command cli
 | `veda/qt/event` | `channelId` 1..4 | 0..3 |
 | `veda/ch/{ch}/alive` | topic `ch` 0..3 | 0..3 |
 | TopView | topic/payload `ch` 0..3 | 0..3 |
-| Vision detections | topic/channelId 1..4 | reserved for debug only |
+| Head blur metadata | topic 1..4 / payload `ch` 0..3 | decoded video ROI mosaic blur |
 
 The central broker server rejects `channelId <= 0`, so central status and event messages must never be interpreted as zero-based values. The previous implementation did that and displayed wire channel 1 on `CH 02` while rejecting wire channel 4.
 
@@ -23,7 +23,7 @@ The central broker server rejects `channelId <= 0`, so central status and event 
 - `veda/ch/+/topview` (QoS 0, direct `MqttTopViewSink` path)
 - `veda/qt/ch/+/topview` (QoS 0, central relay path)
 - `veda/qt/event` (QoS 1)
-- `veda/vision/+/detections` (QoS 0, debug receipt only)
+- `veda/vision/+/detections` (QoS 0, `BlurFrame` JSON)
 
 The direct and relayed TopView topics can be enabled at the same time. Qt drops an equal or older `ts` per channel, so a relayed copy of a direct frame is not rendered twice.
 
@@ -51,8 +51,17 @@ VEDA_MQTT_DEBUG=1
 `VEDA_MQTT_DEBUG=1` prints connection, subscription, status payload, and rate-limited TopView summaries.
 Set it to `0` to disable MQTT console logging. TopView logging is limited to once per second per channel so
 debug output does not flood the UI and video threads.
-Vision detections currently print the received topic and payload for protocol verification only; they are not
-connected to a video overlay yet.
+`veda/vision/{channelId}/detections` carries `BlurFrame` JSON. The topic channel is 1-based while payload `ch`
+is 0-based. Qt validates both values, keeps only `Head` targets, matches their UTC `ts` to the delayed RTSP frame,
+expands each normalized bbox by 18%, and applies a mosaic blur before `d3d11videosink`. Set
+`QTCCTV_BLUR_SYNC_OFFSET_MS` when the actual video delay differs from the default RTSP latency (2500 ms).
+
+```json
+{"v":1,"ts":1753060000123,"ch":0,"blurs":[{"id":3022,"cls":"Head","box":{"l":0.31,"t":0.18,"r":0.38,"b":0.31}}]}
+```
+
+An empty `blurs` array is a valid frame and must still be published so an earlier Head box is not reused for a
+later video frame.
 
 TopView positions are world coordinates. For a stable production map, set the calibrated world extent:
 
