@@ -1,10 +1,12 @@
 #include "network/BlurFrameDispatcher.h"
 
+#include <QDateTime>
 #include <QTimer>
 #include <utility>
 
 namespace {
 constexpr int frameFlushIntervalMsec = 10;
+constexpr int sourceRestartGapMsec = 5000;
 }
 
 /**
@@ -32,6 +34,7 @@ void BlurFrameDispatcher::stop() {
     flushTimer_->stop();
     pendingFrames_.clear();
     latestSourceTimes_.clear();
+    lastArrivalTimes_.clear();
 }
 
 /**
@@ -43,11 +46,18 @@ void BlurFrameDispatcher::submitFrame(BlurFrameData frame) {
         return;
     }
 
-    if (frame.sourceTimestamp <= latestSourceTimes_.value(frame.channelIndex, 0)) {
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    const int channelIndex = frame.channelIndex;
+    const qint64 lastArrivalMsec = lastArrivalTimes_.value(channelIndex, 0);
+    if (lastArrivalMsec > 0 && nowMsec - lastArrivalMsec > sourceRestartGapMsec) {
+        latestSourceTimes_.remove(channelIndex);
+    }
+    lastArrivalTimes_.insert(channelIndex, nowMsec);
+
+    if (frame.sourceTimestamp <= latestSourceTimes_.value(channelIndex, 0)) {
         return;
     }
 
-    const int channelIndex = frame.channelIndex;
     latestSourceTimes_.insert(channelIndex, frame.sourceTimestamp);
     pendingFrames_.insert(channelIndex, std::move(frame));
 

@@ -70,6 +70,22 @@ QColor labelColorForRiskLevel(DigitalTwinRiskLevel riskLevel) {
 }
 
 /**
+ * @brief             객체 유형별 이동 경로 색상을 반환합니다.
+ * @param objectType  디지털 트윈 객체 유형
+ * @return            데모와 실제 TopView에 공통 적용할 이동 경로 색상
+ */
+QColor trailColorForObjectType(DigitalTwinObjectType objectType) {
+    switch (objectType) {
+        case DigitalTwinObjectType::Vehicle:
+            return QColor(QStringLiteral("#23d8ff"));
+        case DigitalTwinObjectType::Pedestrian:
+            return QColor(QStringLiteral("#45f23a"));
+    }
+
+    return QColor(QStringLiteral("#23d8ff"));
+}
+
+/**
  * @brief         아이콘 리소스 로딩 실패 시 대체로 그릴 색상을 반환합니다.
  * @param object  스타일을 계산할 디지털 트윈 객체
  * @return        fallback shape에 사용할 색상
@@ -94,5 +110,5 @@ QColor fallbackColorForObject(const DigitalTwinObject& object) {
  */
 DigitalTwinObjectVisualStyle DefaultDigitalTwinObjectStyleProvider::styleFor(const DigitalTwinObject& object) const {
     return {iconPathForObject(object), iconSizeForType(object.type), labelColorForRiskLevel(object.riskLevel),
-            object.color, fallbackColorForObject(object)};
+            trailColorForObjectType(object.type), fallbackColorForObject(object)};
 }

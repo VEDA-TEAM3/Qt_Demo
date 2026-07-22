@@ -86,6 +86,7 @@ bool TopViewObjectTracker::expireStaleFrames(qint64 currentTimeMsec, qint64 expi
         const int channelIndex = iterator.key();
         iterator = frameArrivalTimes_.erase(iterator);
         frames_.remove(channelIndex);
+        latestSourceTimes_.remove(channelIndex);
         changed = true;
     }
 

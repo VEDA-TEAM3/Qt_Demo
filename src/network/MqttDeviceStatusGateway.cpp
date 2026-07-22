@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QUuid>
 #include <QtMqtt/QMqttClient>
+#include <QtMqtt/QMqttSubscription>
 #include <QtMqtt/QMqttTopicName>
 #include <cmath>
 #include <utility>
@@ -21,6 +22,7 @@
 #include "network/BlurMessageParser.h"
 #include "network/BlurFrameDispatcher.h"
 #include "network/TopViewFrameDispatcher.h"
+#include "network/TopViewMessageParser.h"
 
 namespace {
 constexpr auto controllerStatusTopic = "veda/hw/+/status";
@@ -268,96 +270,6 @@ bool readFiniteNumber(const QJsonObject& object, const QString& name, double& va
     return true;
 }
 
-bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopViewFrameData& frame, QString& error) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
-    const QRegularExpressionMatch match = topicPattern.match(topic);
-    if (!match.hasMatch()) {
-        error = QStringLiteral("Invalid TopView topic: %1").arg(topic);
-        return false;
-    }
-
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        error = QStringLiteral("Invalid TopView JSON on %1: %2").arg(topic, parseError.errorString());
-        return false;
-    }
-
-    const QJsonObject object = document.object();
-    qint64 version = 0;
-    qint64 timestamp = 0;
-    qint64 payloadChannel = 0;
-    if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
-        !readInteger(object, QStringLiteral("ts"), timestamp) || timestamp <= 0 ||
-        !readInteger(object, QStringLiteral("ch"), payloadChannel)) {
-        error = QStringLiteral("Invalid v, ts or ch field on %1").arg(topic);
-        return false;
-    }
-
-    const int topicChannel = match.captured(1).toInt();
-    if (payloadChannel != topicChannel) {
-        error = QStringLiteral("TopView topic/payload channel mismatch on %1").arg(topic);
-        return false;
-    }
-
-    const QJsonValue objectsValue = object.value(QStringLiteral("objects"));
-    if (!objectsValue.isArray()) {
-        error = QStringLiteral("Missing objects array on %1").arg(topic);
-        return false;
-    }
-
-    frame.channelIndex = topicChannel;
-    frame.sourceTimestamp = timestamp;
-    const QJsonArray objects = objectsValue.toArray();
-    frame.objects.reserve(objects.size());
-
-    for (const QJsonValue& objectValue : objects) {
-        if (!objectValue.isObject()) {
-            error = QStringLiteral("TopView objects must be JSON objects on %1").arg(topic);
-            return false;
-        }
-
-        const QJsonObject sourceObject = objectValue.toObject();
-        const QJsonValue classValue = sourceObject.value(QStringLiteral("cls"));
-        const QJsonValue positionValue = sourceObject.value(QStringLiteral("pos"));
-        qint64 objectId = 0;
-        double confidence = 0.0;
-        bool edge = false;
-
-        if (!readInteger(sourceObject, QStringLiteral("id"), objectId) || !classValue.isString() ||
-            !positionValue.isObject() || !readFiniteNumber(sourceObject, QStringLiteral("conf"), confidence) ||
-            confidence < 0.0 || confidence > 1.0 || !readBoolean(sourceObject, QStringLiteral("edge"), edge)) {
-            error = QStringLiteral("Invalid TopView object fields on %1").arg(topic);
-            return false;
-        }
-
-        const QString objectClass = classValue.toString();
-        if (objectClass != QStringLiteral("Human") && objectClass != QStringLiteral("Vehicle")) {
-            error = QStringLiteral("Unsupported TopView class on %1: %2").arg(topic, objectClass);
-            return false;
-        }
-
-        const QJsonObject position = positionValue.toObject();
-        double x = 0.0;
-        double y = 0.0;
-        if (!readFiniteNumber(position, QStringLiteral("x"), x) ||
-            !readFiniteNumber(position, QStringLiteral("y"), y)) {
-            error = QStringLiteral("Invalid TopView world position on %1").arg(topic);
-            return false;
-        }
-
-        TopViewObjectData parsedObject;
-        parsedObject.id = objectId;
-        parsedObject.objectClass = objectClass;
-        parsedObject.worldPosition = QPointF(x, y);
-        parsedObject.confidence = confidence;
-        parsedObject.edge = edge;
-        frame.objects.append(std::move(parsedObject));
-    }
-
-    return true;
-}
-
 bool parseCentralEventPayload(const QByteArray& payload, const QString& topic, CentralEventData& event,
                               QString& error) {
     QJsonParseError parseError;
@@ -542,11 +454,33 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
                          {blurTopic, blurQos}};
 
     for (const auto& subscription : subscriptions) {
-        if (!client_->subscribe(QString::fromLatin1(subscription.topic), subscription.qos)) {
-            emitProtocolError(QStringLiteral("MQTT subscribe failed: %1").arg(QString::fromLatin1(subscription.topic)));
-        } else if (config_.debugLogging) {
-            qInfo().noquote() << QStringLiteral("[MQTT SUB] topic=%1 qos=%2")
-                                     .arg(QString::fromLatin1(subscription.topic))
+        const QString topic = QString::fromLatin1(subscription.topic);
+        QMqttSubscription* mqttSubscription = client_->subscribe(topic, subscription.qos);
+        if (!mqttSubscription) {
+            emitProtocolError(QStringLiteral("MQTT subscribe failed: %1").arg(topic));
+            continue;
+        }
+
+        connect(mqttSubscription, &QMqttSubscription::stateChanged, this,
+                [this, mqttSubscription, topic](QMqttSubscription::SubscriptionState state) {
+                    if (state == QMqttSubscription::Subscribed) {
+                        if (config_.debugLogging) {
+                            qInfo().noquote() << QStringLiteral("[MQTT SUBSCRIBED] topic=%1 qos=%2")
+                                                     .arg(topic)
+                                                     .arg(static_cast<int>(mqttSubscription->qos()));
+                        }
+                        return;
+                    }
+
+                    if (state == QMqttSubscription::Error) {
+                        emitProtocolError(QStringLiteral("MQTT subscription error: %1 (%2)")
+                                              .arg(topic, mqttSubscription->reason()));
+                    }
+                });
+
+        if (config_.debugLogging) {
+            qInfo().noquote() << QStringLiteral("[MQTT SUB PENDING] topic=%1 qos=%2")
+                                     .arg(topic)
                                      .arg(static_cast<int>(subscription.qos));
         }
     }
@@ -559,7 +493,7 @@ void MqttDeviceStatusGateway::scheduleReconnect() {
 }
 
 void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QString& topic) {
-    if (config_.debugLogging && !topic.endsWith(QStringLiteral("/topview")) &&
+    if (config_.debugLogging && !TopViewMessageParser::matchesTopic(topic) &&
         !BlurMessageParser::matchesTopic(topic)) {
         logReceivedMessage(payload, topic);
     }
@@ -599,10 +533,10 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
         return;
     }
 
-    if (topic.endsWith(QStringLiteral("/topview"))) {
+    if (TopViewMessageParser::matchesTopic(topic)) {
         TopViewFrameData frame;
         QString error;
-        if (!parseTopViewPayload(payload, topic, frame, error)) {
+        if (!TopViewMessageParser::parse(payload, topic, frame, error)) {
             emitProtocolError(error);
             return;
         }

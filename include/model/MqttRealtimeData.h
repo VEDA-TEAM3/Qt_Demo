@@ -12,7 +12,6 @@ struct TopViewObjectData {
     qint64 id = 0;
     QString objectClass;
     QPointF worldPosition;
-    double confidence = 0.0;
     bool edge = false;
 };
 

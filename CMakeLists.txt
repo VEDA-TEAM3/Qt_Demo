@@ -104,6 +104,8 @@ qt_add_executable(Qtcctvclient
     src/network/BlurFrameDispatcher.cpp
     include/network/TopViewFrameDispatcher.h
     src/network/TopViewFrameDispatcher.cpp
+    include/network/TopViewMessageParser.h
+    src/network/TopViewMessageParser.cpp
     src/network/MqttDeviceStatusGateway.cpp
     include/network/MqttDeviceStatusGatewayFactory.h
     src/network/MqttDeviceStatusGatewayFactory.cpp

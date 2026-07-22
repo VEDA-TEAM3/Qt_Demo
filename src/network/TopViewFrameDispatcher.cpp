@@ -1,10 +1,12 @@
 #include "network/TopViewFrameDispatcher.h"
 
+#include <QDateTime>
 #include <QTimer>
 #include <utility>
 
 namespace {
 constexpr int frameFlushIntervalMsec = 100;
+constexpr int sourceRestartGapMsec = 5000;
 }
 
 /**
@@ -15,7 +17,7 @@ TopViewFrameDispatcher::TopViewFrameDispatcher(QObject* parent) : QObject(parent
     flushTimer_ = new QTimer(this);
     flushTimer_->setInterval(frameFlushIntervalMsec);
     flushTimer_->setSingleShot(true);
-    flushTimer_->setTimerType(Qt::CoarseTimer);
+    flushTimer_->setTimerType(Qt::PreciseTimer);
     connect(flushTimer_, &QTimer::timeout, this, &TopViewFrameDispatcher::flushPendingFrames);
 }
 
@@ -31,6 +33,8 @@ void TopViewFrameDispatcher::stop() {
     running_ = false;
     flushTimer_->stop();
     pendingFrames_.clear();
+    latestSourceTimes_.clear();
+    lastArrivalTimes_.clear();
 }
 
 /**
@@ -42,12 +46,20 @@ void TopViewFrameDispatcher::submitFrame(TopViewFrameData frame) {
         return;
     }
 
-    const auto pending = pendingFrames_.constFind(frame.channelIndex);
-    if (pending != pendingFrames_.cend() && pending->sourceTimestamp >= frame.sourceTimestamp) {
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    const int channelIndex = frame.channelIndex;
+    const qint64 lastArrivalMsec = lastArrivalTimes_.value(channelIndex, 0);
+    if (lastArrivalMsec > 0 && nowMsec - lastArrivalMsec > sourceRestartGapMsec) {
+        latestSourceTimes_.remove(channelIndex);
+    }
+    lastArrivalTimes_.insert(channelIndex, nowMsec);
+
+    if (frame.sourceTimestamp <= latestSourceTimes_.value(channelIndex, 0)) {
         return;
     }
 
-    pendingFrames_.insert(frame.channelIndex, std::move(frame));
+    latestSourceTimes_.insert(channelIndex, frame.sourceTimestamp);
+    pendingFrames_.insert(channelIndex, std::move(frame));
     if (!flushTimer_->isActive()) {
         flushTimer_->start();
     }

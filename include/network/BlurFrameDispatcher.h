@@ -25,6 +25,7 @@ private:
 
     QMap<int, BlurFrameData> pendingFrames_;
     QMap<int, qint64> latestSourceTimes_;
+    QMap<int, qint64> lastArrivalTimes_;
     QTimer* flushTimer_ = nullptr;
     bool running_ = false;
 };
