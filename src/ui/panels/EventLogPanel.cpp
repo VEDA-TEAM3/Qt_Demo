@@ -40,14 +40,14 @@ QScrollBar::handle:vertical:hover {
     background: #5b88aa;
 }
 QScrollBar::add-line:vertical {
-    background: #06111f;
+    background: #07111b;
     border: none;
     height: 0;
     subcontrol-position: bottom;
     subcontrol-origin: margin;
 }
 QScrollBar::sub-line:vertical {
-    background: #06111f;
+    background: #07111b;
     border: none;
     height: 0;
     subcontrol-position: top;
@@ -62,7 +62,7 @@ QScrollBar::down-arrow:vertical {
 }
 QScrollBar::add-page:vertical,
 QScrollBar::sub-page:vertical {
-    background: #06111f;
+    background: #07111b;
     border: none;
 }
 )";
