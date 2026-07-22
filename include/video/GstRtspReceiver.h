@@ -9,6 +9,7 @@
 #include <QString>
 #include <QVector>
 #include <atomic>
+#include <vector>
 
 #include "video/StreamReceiver.h"
 
@@ -85,6 +86,8 @@ private:
 
     mutable QMutex headBlurMutex_;
     QVector<HeadBlurFrameData> headBlurHistory_;
+    std::vector<guint8> headBlurScratch_;
     std::atomic<qint64> headBlurSourceToLocalOffsetMsec_{0};
     std::atomic_bool headBlurClockOffsetReady_{false};
+    std::atomic<qint64> lastHeadBlurApplyLogMsec_{0};
 };

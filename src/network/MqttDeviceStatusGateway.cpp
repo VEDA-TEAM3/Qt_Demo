@@ -27,9 +27,10 @@ constexpr auto sensorAliveTopic = "veda/ch/+/alive";
 constexpr auto directTopViewTopic = "veda/ch/+/topview";
 constexpr auto relayedTopViewTopic = "veda/qt/ch/+/topview";
 constexpr auto centralEventTopic = "veda/qt/event";
-constexpr auto visionDetectionsTopic = "veda/vision/+/detections";
+constexpr auto headBlurTopic = "veda/ch/+/blur";
 constexpr int statusQos = 1;
 constexpr int topViewQos = 0;
+constexpr int headBlurQos = 0;
 constexpr int reconnectIntervalMsec = 3000;
 constexpr int deviceChannelCount = 4;
 constexpr int protocolVersion = 1;
@@ -73,8 +74,8 @@ QString debugPayloadText(const QByteArray& payload) {
     return text;
 }
 
-bool isVisionDetectionsTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/vision/[1-4]/detections$"));
+bool isHeadBlurTopic(const QString& topic) {
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/ch/[1-4]/blur$"));
     return topicPattern.match(topic).hasMatch();
 }
 
@@ -360,7 +361,7 @@ bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopVie
 }
 
 bool parseHeadBlurPayload(const QByteArray& payload, const QString& topic, HeadBlurFrameData& frame, QString& error) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/vision/([1-4])/detections$"));
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/ch/([1-4])/blur$"));
     const QRegularExpressionMatch match = topicPattern.match(topic);
     if (!match.hasMatch()) {
         error = QStringLiteral("Invalid Head blur topic: %1").arg(topic);
@@ -380,17 +381,19 @@ bool parseHeadBlurPayload(const QByteArray& payload, const QString& topic, HeadB
     qint64 payloadChannel = 0;
     if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
         !readInteger(object, QStringLiteral("ts"), timestamp) || timestamp <= 0 ||
-        !readInteger(object, QStringLiteral("ch"), payloadChannel) || payloadChannel < 0 ||
-        payloadChannel >= deviceChannelCount) {
+        !readInteger(object, QStringLiteral("ch"), payloadChannel) || payloadChannel < 1 ||
+        payloadChannel > deviceChannelCount) {
         error = QStringLiteral("Invalid v, ts or ch field on %1").arg(topic);
         return false;
     }
 
-    const int topicChannelIndex = match.captured(1).toInt() - 1;
-    if (payloadChannel != topicChannelIndex) {
+    const int topicWireChannel = match.captured(1).toInt();
+    if (payloadChannel != topicWireChannel) {
         error = QStringLiteral("Head blur topic/payload channel mismatch on %1").arg(topic);
         return false;
     }
+
+    const int topicChannelIndex = topicWireChannel - 1;
 
     const QJsonValue blursValue = object.value(QStringLiteral("blurs"));
     if (!blursValue.isArray()) {
@@ -632,7 +635,7 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
     } subscriptions[] = {{controllerStatusTopic, statusQos}, {centralStatusTopic, statusQos},
                          {sensorAliveTopic, statusQos},      {directTopViewTopic, topViewQos},
                          {relayedTopViewTopic, topViewQos},  {centralEventTopic, statusQos},
-                         {visionDetectionsTopic, topViewQos}};
+                         {headBlurTopic, headBlurQos}};
 
     for (const auto& subscription : subscriptions) {
         if (!client_->subscribe(QString::fromLatin1(subscription.topic), subscription.qos)) {
@@ -656,7 +659,7 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
         logReceivedMessage(payload, topic);
     }
 
-    if (isVisionDetectionsTopic(topic)) {
+    if (isHeadBlurTopic(topic)) {
         HeadBlurFrameData frame;
         QString error;
         if (!parseHeadBlurPayload(payload, topic, frame, error)) {

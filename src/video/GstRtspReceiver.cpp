@@ -181,7 +181,20 @@ qint64 headBlurSyncOffsetMsec() {
     return offset;
 }
 
-void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
+int normalizedFloorPixel(double normalized, int extent) {
+    return qBound(0, static_cast<int>(normalized * static_cast<double>(extent)), extent);
+}
+
+int normalizedCeilPixel(double normalized, int extent) {
+    const double scaled = normalized * static_cast<double>(extent);
+    int pixel = static_cast<int>(scaled);
+    if (static_cast<double>(pixel) < scaled) {
+        ++pixel;
+    }
+    return qBound(0, pixel, extent);
+}
+
+void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox, std::vector<guint8>& scratch) {
     if (GST_VIDEO_FRAME_FORMAT(&frame) != GST_VIDEO_FORMAT_BGRA) {
         return;
     }
@@ -197,10 +210,10 @@ void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
     const QRectF paddedBox =
         sourceBox.adjusted(-paddingX, -paddingY, paddingX, paddingY).intersected(QRectF(0.0, 0.0, 1.0, 1.0));
 
-    const int left = qBound(0, static_cast<int>(std::floor(paddedBox.left() * frameWidth)), frameWidth);
-    const int top = qBound(0, static_cast<int>(std::floor(paddedBox.top() * frameHeight)), frameHeight);
-    const int right = qBound(0, static_cast<int>(std::ceil(paddedBox.right() * frameWidth)), frameWidth);
-    const int bottom = qBound(0, static_cast<int>(std::ceil(paddedBox.bottom() * frameHeight)), frameHeight);
+    const int left = normalizedFloorPixel(paddedBox.left(), frameWidth);
+    const int top = normalizedFloorPixel(paddedBox.top(), frameHeight);
+    const int right = normalizedCeilPixel(paddedBox.right(), frameWidth);
+    const int bottom = normalizedCeilPixel(paddedBox.bottom(), frameHeight);
     const int regionWidth = right - left;
     const int regionHeight = bottom - top;
     if (regionWidth < 2 || regionHeight < 2) {
@@ -211,7 +224,10 @@ void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
     const int stride = GST_VIDEO_FRAME_PLANE_STRIDE(&frame, 0);
     const int radius = std::clamp(std::min(regionWidth, regionHeight) / 8, 4, 18);
     constexpr int colorChannels = 3;
-    std::vector<guint8> horizontal(static_cast<size_t>(regionWidth) * regionHeight * colorChannels);
+    const size_t scratchSize = static_cast<size_t>(regionWidth) * regionHeight * colorChannels;
+    if (scratch.size() < scratchSize) {
+        scratch.resize(scratchSize);
+    }
 
     // Horizontal pass. A sliding window keeps the cost proportional to the BBOX area.
     for (int localY = 0; localY < regionHeight; ++localY) {
@@ -227,7 +243,7 @@ void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
                 const int windowStart = std::max(0, x - radius);
                 windowEnd = std::min(regionWidth - 1, x + radius);
                 const int count = windowEnd - windowStart + 1;
-                horizontal[(static_cast<size_t>(localY) * regionWidth + x) * colorChannels + channel] =
+                scratch[(static_cast<size_t>(localY) * regionWidth + x) * colorChannels + channel] =
                     static_cast<guint8>(sum / static_cast<quint64>(count));
 
                 const int removeX = x - radius;
@@ -248,7 +264,7 @@ void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
             quint64 sum = 0;
             int windowEnd = std::min(radius, regionHeight - 1);
             for (int y = 0; y <= windowEnd; ++y) {
-                sum += horizontal[(static_cast<size_t>(y) * regionWidth + localX) * colorChannels + channel];
+                sum += scratch[(static_cast<size_t>(y) * regionWidth + localX) * colorChannels + channel];
             }
 
             for (int localY = 0; localY < regionHeight; ++localY) {
@@ -261,10 +277,10 @@ void applyBoxBlur(GstVideoFrame& frame, const QRectF& sourceBox) {
                 const int removeY = localY - radius;
                 const int addY = localY + radius + 1;
                 if (removeY >= 0) {
-                    sum -= horizontal[(static_cast<size_t>(removeY) * regionWidth + localX) * colorChannels + channel];
+                    sum -= scratch[(static_cast<size_t>(removeY) * regionWidth + localX) * colorChannels + channel];
                 }
                 if (addY < regionHeight) {
-                    sum += horizontal[(static_cast<size_t>(addY) * regionWidth + localX) * colorChannels + channel];
+                    sum += scratch[(static_cast<size_t>(addY) * regionWidth + localX) * colorChannels + channel];
                 }
             }
         }
@@ -782,7 +798,8 @@ void GstRtspReceiver::applyHeadBlur(GstPad* pad, GstPadProbeInfo* info) {
         return;
     }
     const qint64 sourceToLocalOffset = headBlurSourceToLocalOffsetMsec_.load(std::memory_order_relaxed);
-    const qint64 targetTimestamp = QDateTime::currentMSecsSinceEpoch() - sourceToLocalOffset - headBlurSyncOffsetMsec();
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    const qint64 targetTimestamp = nowMsec - sourceToLocalOffset - headBlurSyncOffsetMsec();
     const QVector<QRectF> regions = headBlurRegionsFor(targetTimestamp);
     if (regions.isEmpty()) {
         return;
@@ -815,9 +832,19 @@ void GstRtspReceiver::applyHeadBlur(GstPad* pad, GstPadProbeInfo* info) {
     }
 
     for (const QRectF& region : regions) {
-        applyBoxBlur(videoFrame, region);
+        applyBoxBlur(videoFrame, region, headBlurScratch_);
     }
     gst_video_frame_unmap(&videoFrame);
+
+    qint64 lastLogMsec = lastHeadBlurApplyLogMsec_.load(std::memory_order_relaxed);
+    if (nowMsec - lastLogMsec >= 1000 && lastHeadBlurApplyLogMsec_.compare_exchange_strong(
+                                               lastLogMsec, nowMsec, std::memory_order_relaxed)) {
+        qInfo().noquote() << QStringLiteral("[HEAD BLUR APPLY] regions=%1 frame=%2x%3 targetTs=%4")
+                                 .arg(regions.size())
+                                 .arg(GST_VIDEO_INFO_WIDTH(&videoInfo))
+                                 .arg(GST_VIDEO_INFO_HEIGHT(&videoInfo))
+                                 .arg(targetTimestamp);
+    }
 }
 
 /**
