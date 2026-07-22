@@ -79,7 +79,7 @@ QColor VideoRiskBorderFrame::colorForRiskLevel(DigitalTwinRiskLevel riskLevel) c
         case DigitalTwinRiskLevel::Warning:
             return QColor(QStringLiteral("#ffd43b"));
         case DigitalTwinRiskLevel::Danger:
-            return QColor(QStringLiteral("#ff5a5f"));
+            return QColor(QStringLiteral("#ff2f3d"));
         case DigitalTwinRiskLevel::Normal:
             return QColor(0, 0, 0, 0);
     }
