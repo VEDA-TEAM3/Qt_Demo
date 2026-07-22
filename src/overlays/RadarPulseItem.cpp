@@ -10,12 +10,13 @@
 
 namespace {
 constexpr qreal minimumRadius = 10.0;
-constexpr qreal warningMaximumRadius = 100.0;
-constexpr qreal dangerMaximumRadius = 132.0;
+constexpr qreal warningMaximumRadius = 142.0;
+constexpr qreal dangerMaximumRadius = 180.0;
 constexpr qreal boundingPadding = 20.0;
-constexpr qreal ringDelay = 0.18;
-constexpr int warningAnimationDurationMsec = 1240;
-constexpr int dangerAnimationDurationMsec = 1500;
+constexpr qreal warningRingDelay = 0.18;
+constexpr qreal dangerRingDelay = 0.16;
+constexpr int warningAnimationDurationMsec = 1400;
+constexpr int dangerAnimationDurationMsec = 1800;
 
 /**
  * @brief        애니메이션 진행률을 0.0~1.0 범위로 제한합니다.
@@ -77,30 +78,48 @@ void RadarPulseItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
 
         const qreal radius = minimumRadius + (maxRadius - minimumRadius) * phase;
         const qreal remaining = 1.0 - phase;
-        const int alpha = static_cast<int>((danger ? 250.0 : 220.0) * remaining);
+        const qreal fade = remaining * remaining * (3.0 - 2.0 * remaining);
+        const int alpha = static_cast<int>((danger ? 255.0 : 220.0) * fade);
 
-        QColor glowColor = baseColor;
-        glowColor.setAlpha(std::max(0, alpha * 2 / 5));
-        QPen glowPen(glowColor, danger ? 15.0 : 12.0);
-        glowPen.setCosmetic(true);
-        painter->setPen(glowPen);
+        QColor outerGlowColor = baseColor;
+        outerGlowColor.setAlpha(std::max(0, danger ? alpha / 5 : alpha * 4 / 25));
+        QPen outerGlowPen(outerGlowColor, danger ? 19.0 : 15.0);
+        outerGlowPen.setCosmetic(true);
+        painter->setPen(outerGlowPen);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawEllipse(QPointF(0.0, 0.0), radius, radius);
+
+        QColor innerGlowColor = baseColor;
+        innerGlowColor.setAlpha(std::max(0, danger ? alpha * 2 / 5 : alpha * 8 / 25));
+        QPen innerGlowPen(innerGlowColor, danger ? 8.5 : 7.0);
+        innerGlowPen.setCosmetic(true);
+        painter->setPen(innerGlowPen);
         painter->setBrush(Qt::NoBrush);
         painter->drawEllipse(QPointF(0.0, 0.0), radius, radius);
 
         QColor lineColor = baseColor;
-        lineColor.setAlpha(std::max(0, alpha));
-        QPen linePen(lineColor, danger ? 3.1 : 2.5);
+        lineColor.setAlpha(std::max(0, danger ? alpha * 9 / 10 : alpha * 4 / 5));
+        QPen linePen(lineColor, danger ? 2.6 : 2.0);
         linePen.setCosmetic(true);
         painter->setPen(linePen);
         painter->drawEllipse(QPointF(0.0, 0.0), radius, radius);
     }
 
-    if (progress_ < 0.34) {
-        QColor centerColor = baseColor;
-        centerColor.setAlpha(static_cast<int>(135.0 * (1.0 - progress_ / 0.34)));
+    const qreal centerDuration = danger ? 0.42 : 0.4;
+    if (progress_ < centerDuration) {
+        const qreal centerFade = 1.0 - progress_ / centerDuration;
+        const qreal centerRadius = 8.0 + progress_ * (danger ? 30.0 : 24.0);
+
+        QColor centerGlowColor = baseColor;
+        centerGlowColor.setAlpha(static_cast<int>((danger ? 58.0 : 34.0) * centerFade));
         painter->setPen(Qt::NoPen);
+        painter->setBrush(centerGlowColor);
+        painter->drawEllipse(QPointF(0.0, 0.0), centerRadius * 1.7, centerRadius * 1.7);
+
+        QColor centerColor = baseColor;
+        centerColor.setAlpha(static_cast<int>((danger ? 150.0 : 105.0) * centerFade * centerFade));
         painter->setBrush(centerColor);
-        painter->drawEllipse(QPointF(0.0, 0.0), 7.0 + progress_ * 20.0, 7.0 + progress_ * 20.0);
+        painter->drawEllipse(QPointF(0.0, 0.0), centerRadius, centerRadius);
     }
 }
 
@@ -146,7 +165,7 @@ bool RadarPulseItem::isFinished() const { return progress_ >= 1.0; }
  */
 QColor RadarPulseItem::pulseColor() const {
     if (riskLevel_ == DigitalTwinRiskLevel::Danger) {
-        return QColor(QStringLiteral("#ff5a5f"));
+        return QColor(QStringLiteral("#ff2f3d"));
     }
 
     return QColor(QStringLiteral("#ffd43b"));
@@ -156,7 +175,7 @@ QColor RadarPulseItem::pulseColor() const {
  * @brief 위험 단계에 맞는 원 개수를 반환합니다.
  * @return 표시할 확산 원 개수
  */
-int RadarPulseItem::ringCount() const { return riskLevel_ == DigitalTwinRiskLevel::Danger ? 3 : 2; }
+int RadarPulseItem::ringCount() const { return riskLevel_ == DigitalTwinRiskLevel::Danger ? 4 : 3; }
 
 /**
  * @brief            지정한 원의 지연 시간을 반영한 진행률을 계산합니다.
@@ -164,9 +183,10 @@ int RadarPulseItem::ringCount() const { return riskLevel_ == DigitalTwinRiskLeve
  * @return           해당 원의 진행률
  */
 qreal RadarPulseItem::ringPhase(int ringIndex) const {
-    const qreal totalDelay = static_cast<qreal>(ringCount() - 1) * ringDelay;
+    const qreal delay = riskLevel_ == DigitalTwinRiskLevel::Danger ? dangerRingDelay : warningRingDelay;
+    const qreal totalDelay = static_cast<qreal>(ringCount() - 1) * delay;
     const qreal normalizedTime = progress_ * (1.0 + totalDelay);
-    return clampedProgress(normalizedTime - static_cast<qreal>(ringIndex) * ringDelay);
+    return clampedProgress(normalizedTime - static_cast<qreal>(ringIndex) * delay);
 }
 
 /**

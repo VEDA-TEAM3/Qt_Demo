@@ -186,7 +186,7 @@ QVariant DigitalTwinObjectTableModel::headerData(int section, Qt::Orientation or
         case ObjectPositionColumn:
             return QStringLiteral("위치 (X, Y)");
         case ObjectAreaColumn:
-            return QStringLiteral("구역");
+            return QStringLiteral("채널");
         default:
             return {};
     }

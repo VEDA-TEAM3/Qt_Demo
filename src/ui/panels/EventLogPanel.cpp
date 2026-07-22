@@ -23,6 +23,49 @@ constexpr int eventAreaColumnWidth = 46;
 constexpr int eventObjectColumnWidth = 76;
 constexpr int eventRiskColumnWidth = 62;
 constexpr int eventActionColumnWidth = 98;
+constexpr auto eventLogScrollBarStyle = R"(
+QScrollBar:vertical {
+    background: transparent;
+    border: none;
+    width: 8px;
+    margin: 36px 2px 4px 2px;
+}
+QScrollBar::handle:vertical {
+    background: #426986;
+    border: none;
+    border-radius: 4px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #5b88aa;
+}
+QScrollBar::add-line:vertical {
+    background: #06111f;
+    border: none;
+    height: 0;
+    subcontrol-position: bottom;
+    subcontrol-origin: margin;
+}
+QScrollBar::sub-line:vertical {
+    background: #06111f;
+    border: none;
+    height: 0;
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+QScrollBar::up-arrow:vertical,
+QScrollBar::down-arrow:vertical {
+    image: none;
+    border: none;
+    width: 0;
+    height: 0;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: #06111f;
+    border: none;
+}
+)";
 }  // namespace
 
 /**
@@ -68,6 +111,7 @@ void EventLogPanel::prependEntries(QVector<EventLogEntry> entries) {
 void EventLogPanel::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     resizeColumns();
+    updateScrollHeaderCover();
 }
 
 /**
@@ -88,7 +132,7 @@ void EventLogPanel::setupUi() {
     table_->setSelectionMode(QAbstractItemView::NoSelection);
     table_->setShowGrid(false);
     table_->setAlternatingRowColors(false);
-    table_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    table_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     table_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     table_->verticalHeader()->setVisible(false);
@@ -99,10 +143,46 @@ void EventLogPanel::setupUi() {
     table_->horizontalHeader()->setSectionsClickable(false);
     table_->horizontalHeader()->setMinimumSectionSize(40);
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    QScrollBar* verticalScrollBar = table_->verticalScrollBar();
+    verticalScrollBar->setStyleSheet(QString::fromLatin1(eventLogScrollBarStyle));
+    scrollHeaderCover_ = new QWidget(verticalScrollBar);
+    scrollHeaderCover_->setObjectName(QStringLiteral("eventLogScrollHeaderCover"));
+    scrollHeaderCover_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    connect(verticalScrollBar, &QScrollBar::rangeChanged, this,
+            [this](int, int) {
+                QTimer::singleShot(0, this, [this]() {
+                    resizeColumns();
+                    updateScrollHeaderCover();
+                });
+            });
     layout->addWidget(table_);
 
     resizeColumns();
-    QTimer::singleShot(0, this, &EventLogPanel::resizeColumns);
+    QTimer::singleShot(0, this, [this]() {
+        resizeColumns();
+        updateScrollHeaderCover();
+    });
+}
+
+/**
+ * @brief   세로 스크롤바가 차지하는 헤더 오른쪽 빈 영역을 헤더 색상으로 마감합니다.
+ */
+void EventLogPanel::updateScrollHeaderCover() {
+    if (!table_ || !scrollHeaderCover_) {
+        return;
+    }
+
+    QScrollBar* scrollBar = table_->verticalScrollBar();
+    const bool scrollBarVisible = scrollBar->isVisible() && scrollBar->maximum() > scrollBar->minimum();
+    scrollHeaderCover_->setVisible(scrollBarVisible);
+
+    if (!scrollBarVisible) {
+        return;
+    }
+
+    QHeaderView* header = table_->horizontalHeader();
+    scrollHeaderCover_->setGeometry(0, 0, scrollBar->width(), header->height());
+    scrollHeaderCover_->raise();
 }
 
 /**

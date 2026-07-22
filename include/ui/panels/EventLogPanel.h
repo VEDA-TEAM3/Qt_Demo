@@ -24,7 +24,9 @@ protected:
 private:
     void setupUi();
     void resizeColumns();
+    void updateScrollHeaderCover();
 
     EventLogTableModel* model_ = nullptr;
     QTableView* table_ = nullptr;
+    QWidget* scrollHeaderCover_ = nullptr;
 };

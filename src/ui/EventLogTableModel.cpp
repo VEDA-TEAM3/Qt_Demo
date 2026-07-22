@@ -178,9 +178,9 @@ QVariant EventLogTableModel::headerData(int section, Qt::Orientation orientation
         case EventTimeColumn:
             return QStringLiteral("시간");
         case EventAreaColumn:
-            return QStringLiteral("구역");
+            return QStringLiteral("채널");
         case EventObjectColumn:
-            return QStringLiteral("객체");
+            return QStringLiteral("이벤트");
         case EventRiskColumn:
             return QStringLiteral("위험 수준");
         case EventActionColumn:
