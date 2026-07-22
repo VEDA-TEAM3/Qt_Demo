@@ -10,24 +10,28 @@
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <utility>
+
+#include "video/BlurVideoFilter.h"
 
 namespace {
 constexpr int busPollIntervalMsec = 200;
-constexpr int rtspLatencyMsec = 2500;
+constexpr int rtspLatencyMsec = 300;
 constexpr int initialPacketTimeoutMsec = 10000;
 constexpr int initialFrameTimeoutMsec = 10000;
 
 constexpr int maxReconnectDelayMsec = 5000;
 constexpr int authenticationFailureReconnectDelayMsec = 120000;
-constexpr int stallTimeoutMsec = 20000;
+constexpr int stallTimeoutMsec = 8000;
 constexpr guint udpBufferSizeBytes = 4 * 1024 * 1024;
 
-constexpr int decodeQueueMaxBuffers = 12;
-constexpr qint64 decodeQueueMaxTimeNsec = 400LL * 1000 * 1000;
+constexpr int decodeQueueMaxBuffers = 8;
+constexpr qint64 decodeQueueMaxTimeNsec = 250LL * 1000 * 1000;
 
-constexpr int renderQueueMaxBuffers = 6;
-constexpr qint64 renderQueueMaxTimeNsec = 200LL * 1000 * 1000;
+constexpr int renderQueueMaxBuffers = 1;
+constexpr qint64 renderQueueMaxTimeNsec = 100LL * 1000 * 1000;
 
 constexpr qint64 minimumLoadingMsec = 700;
 constexpr int reconnectSpreadMsec = 3000;
@@ -160,6 +164,7 @@ bool isAuthenticationFailure(const QString& errorText) {
     return errorText.contains(QStringLiteral("account blocked"), Qt::CaseInsensitive) ||
            errorText.contains(QStringLiteral("authentication failed"), Qt::CaseInsensitive);
 }
+
 }  // namespace
 
 /**
@@ -168,7 +173,7 @@ bool isAuthenticationFailure(const QString& errorText) {
  * @param parent              Qt 객체 소유권 부모
  */
 GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, QObject* parent)
-    : StreamReceiver(parent), outputWindowHandle_(outputWindowHandle) {
+    : StreamReceiver(parent), outputWindowHandle_(outputWindowHandle), blurProcessor_(rtspLatencyMsec) {
     busTimer_ = new QTimer(this);
     reconnectTimer_ = new QTimer(this);
     busTimer_->setTimerType(Qt::PreciseTimer);
@@ -189,6 +194,12 @@ GstRtspReceiver::~GstRtspReceiver() { stop(); }
  * @param url  RTSP 주소
  */
 void GstRtspReceiver::setUrl(const QString& url) { url_ = url.trimmed(); }
+
+void GstRtspReceiver::setBlurTargetsEnabled(bool faceEnabled, bool licensePlateEnabled) {
+    blurProcessor_.setTargetsEnabled(faceEnabled, licensePlateEnabled);
+}
+
+void GstRtspReceiver::setBlurFrame(BlurFrameData frame) { blurProcessor_.submitFrame(std::move(frame)); }
 
 /**
  * @brief        수신기 본체와 자식 타이머를 지정한 worker 스레드로 이동합니다.
@@ -273,15 +284,21 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
+    if (!BlurVideoFilter::ensureRegistered()) {
+        emit errorOccurred("Failed to register blur video filter");
+        scheduleReconnect("blur filter registration failed");
+        return;
+    }
+
     const QString videoChainDesc =
         QString(
             "rtph264depay name=depay request-keyframe=true wait-for-keyframe=true ! "
             "h264parse config-interval=-1 ! "
             "queue name=decodequeue silent=true max-size-buffers=%2 max-size-bytes=0 max-size-time=%3 ! "
-            "%1 ! "
+            "%1 ! videoconvert ! video/x-raw,format=BGRA ! "
             "queue name=renderqueue silent=true leaky=downstream max-size-buffers=%4 max-size-bytes=0 "
             "max-size-time=%5 ! "
-            "identity name=framewatch silent=true signal-handoffs=false ! "
+            "qtblur name=blur ! identity name=framewatch silent=true signal-handoffs=false ! "
             "d3d11videosink name=videosink force-aspect-ratio=true enable-last-sample=false qos=false "
             "sync=false async=false")
             .arg(decoderChain())
@@ -342,7 +359,7 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
-    g_object_set(source, "latency", rtspLatencyMsec, "drop-on-latency", FALSE, "tcp-timeout",
+    g_object_set(source, "latency", rtspLatencyMsec, "drop-on-latency", TRUE, "tcp-timeout",
                  static_cast<guint64>(20000000), "timeout", static_cast<guint64>(5000000), "probation", 2,
                  "udp-buffer-size", udpBufferSizeBytes, nullptr);
     setOptionalBooleanProperty(source, "do-rtsp-keep-alive", TRUE);
@@ -354,7 +371,7 @@ void GstRtspReceiver::startPipeline() {
     g_signal_connect(source, "pad-added", G_CALLBACK(&GstRtspReceiver::onPadAdded), this);
     g_signal_connect(source, "before-send", G_CALLBACK(&GstRtspReceiver::onBeforeSend), this);
     qDebug().noquote() << "[GstRtspReceiver] rtspsrc latency:" << rtspLatencyMsec
-                       << "drop-on-latency:false protocols:defaults";
+                       << "drop-on-latency:true protocols:defaults";
 
     if (GstBus* bus = gst_element_get_bus(pipeline_)) {
         gst_bus_set_sync_handler(bus, &GstRtspReceiver::onBusSyncMessage, this, nullptr);
@@ -363,11 +380,20 @@ void GstRtspReceiver::startPipeline() {
 
     GstElement* videoChainForProbe = gst_bin_get_by_name(GST_BIN(pipeline_), "videochain");
     GstElement* depay = nullptr;
+    GstElement* blur = nullptr;
     GstElement* framewatch = nullptr;
 
     if (videoChainForProbe && GST_IS_BIN(videoChainForProbe)) {
         depay = gst_bin_get_by_name(GST_BIN(videoChainForProbe), "depay");
+        blur = gst_bin_get_by_name(GST_BIN(videoChainForProbe), "blur");
         framewatch = gst_bin_get_by_name(GST_BIN(videoChainForProbe), "framewatch");
+    }
+
+    if (blur) {
+        BlurVideoFilter::setProcessor(blur, &blurProcessor_);
+        gst_object_unref(blur);
+    } else {
+        qWarning() << "[GstRtspReceiver] Failed to find blur filter";
     }
 
     if (depay) {
@@ -483,6 +509,8 @@ void GstRtspReceiver::teardownPipeline() {
     }
 
     windowHandle_ = 0;
+
+    blurProcessor_.clear();
 }
 
 /**
@@ -859,16 +887,16 @@ GstBusSyncReply GstRtspReceiver::onBusSyncMessage(GstBus*, GstMessage* message, 
 QString GstRtspReceiver::decoderChain() const {
     const QByteArray decoderMode = qgetenv("QTCCTV_DECODER_MODE").trimmed().toLower();
 
-    if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec")) {
-        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec") && hasGstFactory("d3d11download")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true ! d3d11download";
     }
 
     if (hasGstFactory("avdec_h264")) {
         return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";
     }
 
-    if (hasGstFactory("d3d11h264dec")) {
-        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true";
+    if (hasGstFactory("d3d11h264dec") && hasGstFactory("d3d11download")) {
+        return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true ! d3d11download";
     }
 
     return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";

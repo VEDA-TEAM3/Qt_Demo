@@ -24,7 +24,9 @@ class QResizeEvent;
 class QShowEvent;
 class StreamReceiverFactory;
 class StreamSessionManager;
+class VideoRiskBorderFrame;
 class QWidget;
+enum class DigitalTwinRiskLevel;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -62,6 +64,7 @@ private:
     void updateDashboardAdaptiveSizes();
     void updateSystemStatus(bool connected);
     void updateStreamConnectionStatus();
+    void updateVideoRiskBorders(const QVector<DigitalTwinRiskLevel>& riskLevels);
     void updateCurrentDateTime();
     void setTopBarStatus(QLabel* label, const QString& title, const QString& status, const QString& color);
 
@@ -77,7 +80,7 @@ private:
     std::shared_ptr<DeviceStatusService> deviceStatusService_;
 
     QVector<QWidget*> videoWidgets_;
-    QVector<QFrame*> videoTileFrames_;
+    QVector<VideoRiskBorderFrame*> videoTileFrames_;
     QVector<StreamConfig> streamConfigs_;
     QVector<bool> streamChannelReady_;
 
@@ -90,6 +93,10 @@ private:
     QWidget* expandedWidget_ = nullptr;
     QTimer clockTimer_;
     DigitalTwinMapDisplaySettings mapDisplaySettings_;
+    QVector<DigitalTwinRiskLevel> latestVideoRiskLevels_;
 
     bool streamSessionStarted_ = false;
+    bool videoRiskBordersEnabled_ = true;
+    bool faceBlurEnabled_ = true;
+    bool licensePlateBlurEnabled_ = true;
 };

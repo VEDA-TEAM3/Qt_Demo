@@ -75,6 +75,50 @@ void StreamSessionManager::stop() {
     stopWorkers();
 }
 
+void StreamSessionManager::submitBlurFrame(BlurFrameData frame) {
+    for (const ReceiverWorker& worker : receiverWorkers_) {
+        if (worker.config.channelIndex != frame.channelIndex || !worker.receiver || !worker.thread ||
+            !worker.thread->isRunning()) {
+            continue;
+        }
+
+        const auto receiver = worker.receiver;
+        const bool invoked = QMetaObject::invokeMethod(
+            receiver.get(),
+            [receiver, frame = std::move(frame)]() mutable { receiver->setBlurFrame(std::move(frame)); },
+            Qt::QueuedConnection);
+        if (!invoked) {
+            qWarning() << "[StreamSessionManager] Failed to deliver blur metadata for channel"
+                       << worker.config.channelIndex;
+        }
+        return;
+    }
+}
+
+/**
+ * @brief                     모든 채널 수신기의 블러 대상 유형을 설정합니다.
+ * @param faceEnabled         얼굴 블러 활성화 여부
+ * @param licensePlateEnabled 차량 번호판 블러 활성화 여부
+ */
+void StreamSessionManager::setBlurTargetsEnabled(bool faceEnabled, bool licensePlateEnabled) {
+    faceBlurEnabled_ = faceEnabled;
+    licensePlateBlurEnabled_ = licensePlateEnabled;
+
+    for (const ReceiverWorker& worker : receiverWorkers_) {
+        if (!worker.receiver || !worker.thread || !worker.thread->isRunning()) {
+            continue;
+        }
+
+        const auto receiver = worker.receiver;
+        QMetaObject::invokeMethod(
+            receiver.get(),
+            [receiver, faceEnabled, licensePlateEnabled]() {
+                receiver->setBlurTargetsEnabled(faceEnabled, licensePlateEnabled);
+            },
+            Qt::QueuedConnection);
+    }
+}
+
 /**
  * @brief 등록된 출력 정보에 맞춰 receiver와 전용 worker thread를 생성합니다.
  */
@@ -122,6 +166,7 @@ void StreamSessionManager::createWorkers() {
 
         receiver->setObjectName(config.cameraId);
         receiver->setUrl(config.url);
+        receiver->setBlurTargetsEnabled(faceBlurEnabled_, licensePlateBlurEnabled_);
         receiver->moveInternalObjectsToThread(receiverThread.get());
 
         if (receiver->thread() != receiverThread.get()) {

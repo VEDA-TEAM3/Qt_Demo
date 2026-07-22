@@ -23,7 +23,7 @@ bool statusesEqual(const DeviceChannelStatus& left, const DeviceChannelStatus& r
 }
 
 QString channelHealthProperty(const DeviceChannelStatus& status) {
-    if (status.feedbackHealth == DeviceFeedbackHealth::Failed || status.sensorHealth == SensorHealth::Offline) {
+    if (status.feedbackHealth == DeviceFeedbackHealth::Failed) {
         return QStringLiteral("failed");
     }
 

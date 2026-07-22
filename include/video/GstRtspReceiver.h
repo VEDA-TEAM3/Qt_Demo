@@ -8,6 +8,7 @@
 #include <QString>
 #include <atomic>
 
+#include "video/BlurProcessor.h"
 #include "video/StreamReceiver.h"
 
 class QThread;
@@ -21,6 +22,8 @@ public:
     ~GstRtspReceiver() override;
 
     void setUrl(const QString& url) override;
+    void setBlurTargetsEnabled(bool faceEnabled, bool licensePlateEnabled) override;
+    void setBlurFrame(BlurFrameData frame) override;
     void moveInternalObjectsToThread(QThread* thread) override;
     void start() override;
     void stop() override;
@@ -77,4 +80,6 @@ private:
 
     bool firstAsyncDoneReported_ = false;
     bool firstFrameReported_ = false;
+
+    BlurProcessor blurProcessor_;
 };

@@ -19,6 +19,17 @@ constexpr int dangerPulseRepeatTicks = 15;
 constexpr int initialObjectCount = 5;
 
 /**
+ * @brief           정규화 좌표를 2x2 구역으로 나눠 CCTV 채널을 계산합니다.
+ * @param position  0.0~1.0 기준 객체 위치
+ * @return          좌상단부터 우하단까지 0~3 채널 인덱스
+ */
+int channelIndexForPosition(const QPointF& position) {
+    const bool rightSide = position.x() >= 0.5;
+    const bool bottomSide = position.y() >= 0.5;
+    return (bottomSide ? 2 : 0) + (rightSide ? 1 : 0);
+}
+
+/**
  * @brief               지정 범위 안의 난수를 생성합니다.
  * @param minimumValue  최소값
  * @param maximumValue  최대값
@@ -208,6 +219,10 @@ void DigitalTwinSimulationWorker::updateObjects() {
  */
 void DigitalTwinSimulationWorker::setupDemoObjects() {
     objects_ = objectSpawner_->createInitialObjects(initialObjectCount);
+    for (DigitalTwinObject& object : objects_) {
+        object.channelIndex = channelIndexForPosition(object.position);
+    }
+
     previousPairRiskLevels_.clear();
     pairPulseCooldownTicks_.clear();
     scheduleNextSpawn();
@@ -253,6 +268,7 @@ void DigitalTwinSimulationWorker::updateObjectMotion(DigitalTwinObject* object) 
     }
 
     object->position = nextPosition;
+    object->channelIndex = channelIndexForPosition(object->position);
 }
 
 /**
@@ -282,7 +298,9 @@ void DigitalTwinSimulationWorker::spawnObjectIfNeeded() {
         return;
     }
 
-    objects_.append(objectSpawner_->createEnteringObject());
+    DigitalTwinObject object = objectSpawner_->createEnteringObject();
+    object.channelIndex = channelIndexForPosition(object.position);
+    objects_.append(std::move(object));
     scheduleNextSpawn();
 }
 

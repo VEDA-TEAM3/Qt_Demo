@@ -7,6 +7,7 @@
 #include "network/DeviceStatusGateway.h"
 
 class QByteArray;
+class BlurFrameDispatcher;
 class QMqttClient;
 class QTimer;
 class TopViewFrameDispatcher;
@@ -38,13 +39,16 @@ private:
     void scheduleReconnect();
     void handleMessage(const QByteArray& payload, const QString& topic);
     void logReceivedMessage(const QByteArray& payload, const QString& topic) const;
+    void logBlurFrame(const QString& topic, const BlurFrameData& frame);
     void logTopViewFrame(const QString& topic, const TopViewFrameData& frame);
     void emitProtocolError(QString detail);
 
     MqttDeviceStatusConfig config_;
     QMqttClient* client_ = nullptr;
     QTimer* reconnectTimer_ = nullptr;
+    BlurFrameDispatcher* blurDispatcher_ = nullptr;
     TopViewFrameDispatcher* topViewDispatcher_ = nullptr;
+    std::array<qint64, 4> lastBlurDebugLogMsec_{};
     std::array<qint64, 4> lastTopViewDebugLogMsec_{};
     bool stopping_ = false;
 };

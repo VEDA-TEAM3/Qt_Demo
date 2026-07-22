@@ -18,6 +18,7 @@ public:
 signals:
     void reportReceived(DeviceStatusReport report);
     void topViewFrameReceived(TopViewFrameData frame);
+    void blurFrameReceived(BlurFrameData frame);
     void centralEventReceived(CentralEventData event);
     void brokerConnectionChanged(bool connected);
 };

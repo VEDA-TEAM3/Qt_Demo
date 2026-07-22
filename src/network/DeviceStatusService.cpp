@@ -9,7 +9,7 @@
 #include "network/DeviceStatusGatewayFactory.h"
 
 namespace {
-constexpr int deviceChannelCount = 4;
+constexpr int statusServiceChannelCount = 4;
 constexpr int maximumRecentReportKeys = 128;
 constexpr int uiFlushIntervalMsec = 50;
 }  // namespace
@@ -27,6 +27,8 @@ DeviceStatusService::DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFact
     qRegisterMetaType<QVector<DeviceChannelStatus>>("QVector<DeviceChannelStatus>");
     qRegisterMetaType<TopViewObjectData>("TopViewObjectData");
     qRegisterMetaType<TopViewFrameData>("TopViewFrameData");
+    qRegisterMetaType<BlurRegionData>("BlurRegionData");
+    qRegisterMetaType<BlurFrameData>("BlurFrameData");
     qRegisterMetaType<CentralEventData>("CentralEventData");
     qRegisterMetaType<QVector<TopViewObjectData>>("QVector<TopViewObjectData>");
 
@@ -117,6 +119,8 @@ void DeviceStatusService::setupGateway() {
             Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::topViewFrameReceived, this,
             &DeviceStatusService::topViewFrameReceived, Qt::QueuedConnection);
+    connect(gateway_.get(), &DeviceStatusGateway::blurFrameReceived, this, &DeviceStatusService::blurFrameReceived,
+            Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::centralEventReceived, this,
             &DeviceStatusService::centralEventReceived, Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::brokerConnectionChanged, this,
@@ -130,10 +134,11 @@ void DeviceStatusService::handleBrokerConnection(bool connected) {
         return;
     }
 
-    for (int channelIndex = 0; channelIndex < deviceChannelCount; ++channelIndex) {
+    for (int channelIndex = 0; channelIndex < statusServiceChannelCount; ++channelIndex) {
         DeviceChannelStatus status = channelStatuses_.value(channelIndex);
         status.channelIndex = channelIndex;
         status.sensorHealth = SensorHealth::Unknown;
+        status.feedbackHealth = DeviceFeedbackHealth::Unknown;
         status.sensorDetail = QStringLiteral("broker_disconnected");
         channelStatuses_.insert(channelIndex, status);
         queueChannelStatus(std::move(status));
@@ -175,7 +180,7 @@ void DeviceStatusService::handleReport(DeviceStatusReport report) {
 }
 
 void DeviceStatusService::handleSensorHealth(const DeviceStatusReport& report, SensorHealth health) {
-    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount) {
+    if (report.channelIndex < 0 || report.channelIndex >= statusServiceChannelCount) {
         emit protocolError(QStringLiteral("Invalid sensor health channel"));
         return;
     }
@@ -190,7 +195,7 @@ void DeviceStatusService::handleSensorHealth(const DeviceStatusReport& report, S
 }
 
 void DeviceStatusService::handleAcknowledgedFeedback(const DeviceStatusReport& report) {
-    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount) {
+    if (report.channelIndex < 0 || report.channelIndex >= statusServiceChannelCount) {
         emit protocolError(QStringLiteral("Invalid acknowledged device feedback channel"));
         return;
     }
@@ -208,7 +213,7 @@ void DeviceStatusService::handleAcknowledgedFeedback(const DeviceStatusReport& r
  * @param report  state가 검증된 성공 피드백 보고
  */
 void DeviceStatusService::handleConfirmedFeedback(const DeviceStatusReport& report) {
-    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount || !report.hasOutputState) {
+    if (report.channelIndex < 0 || report.channelIndex >= statusServiceChannelCount || !report.hasOutputState) {
         emit protocolError(QStringLiteral("Invalid confirmed device feedback"));
         return;
     }
@@ -230,7 +235,7 @@ void DeviceStatusService::handleConfirmedFeedback(const DeviceStatusReport& repo
  * @param report  UART timeout 등 상태 확인 실패 보고
  */
 void DeviceStatusService::handleFailedFeedback(const DeviceStatusReport& report) {
-    if (report.channelIndex < 0 || report.channelIndex >= deviceChannelCount) {
+    if (report.channelIndex < 0 || report.channelIndex >= statusServiceChannelCount) {
         emit protocolError(QStringLiteral("Invalid failed device feedback channel"));
         return;
     }

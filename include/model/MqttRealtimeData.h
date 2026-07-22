@@ -2,6 +2,7 @@
 
 #include <QMetaType>
 #include <QPointF>
+#include <QRectF>
 #include <QString>
 #include <QVector>
 
@@ -21,6 +22,23 @@ struct TopViewFrameData {
     QVector<TopViewObjectData> objects;
 };
 
+enum class BlurTargetType {
+    Face,
+    LicensePlate,
+};
+
+struct BlurRegionData {
+    qint64 id = 0;
+    BlurTargetType targetType = BlurTargetType::Face;
+    QRectF normalizedBox;
+};
+
+struct BlurFrameData {
+    int channelIndex = -1;
+    qint64 sourceTimestamp = 0;
+    QVector<BlurRegionData> regions;
+};
+
 struct CentralEventData {
     int channelIndex = -1;
     qint64 sourceTimestamp = 0;
@@ -36,5 +54,8 @@ struct CentralEventData {
 
 Q_DECLARE_METATYPE(TopViewObjectData)
 Q_DECLARE_METATYPE(TopViewFrameData)
+Q_DECLARE_METATYPE(BlurTargetType)
+Q_DECLARE_METATYPE(BlurRegionData)
+Q_DECLARE_METATYPE(BlurFrameData)
 Q_DECLARE_METATYPE(CentralEventData)
 Q_DECLARE_METATYPE(QVector<TopViewObjectData>)

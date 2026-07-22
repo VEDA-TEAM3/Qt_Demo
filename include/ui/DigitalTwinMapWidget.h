@@ -18,6 +18,7 @@
 class DigitalTwinSimulationWorker;
 class DigitalTwinMapSceneBuilder;
 class DigitalTwinObjectStyleProvider;
+class TopViewObjectTracker;
 class DangerAlertOverlay;
 class QGraphicsPathItem;
 class QGraphicsPixmapItem;
@@ -44,6 +45,7 @@ public slots:
 
 signals:
     void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
+    void channelRiskLevelsChanged(QVector<DigitalTwinRiskLevel> riskLevels);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -64,8 +66,8 @@ private:
     void applyObjectUpdates(const QVector<DigitalTwinObject>& objects);
     void showRiskPulse(const DigitalTwinRiskEvent& event);
     void rebuildLiveSnapshot();
-    QPointF normalizedWorldPosition(const QPointF& worldPosition) const;
     int activeSeverityForChannel(int channelIndex) const;
+    QVector<DigitalTwinRiskLevel> channelRiskLevels(const DigitalTwinSnapshot& snapshot) const;
     bool hasActiveCentralDanger() const;
     void expireStaleLiveFrames();
     void createVisualItem(const DigitalTwinObject& object);
@@ -87,20 +89,13 @@ private:
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
     std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;
+    std::unique_ptr<TopViewObjectTracker> topViewObjectTracker_;
     QVector<DemoVisualItem> demoItems_;
     QHash<QString, qsizetype> visualItemIndexes_;
-    QHash<int, TopViewFrameData> liveFrames_;
-    QHash<int, qint64> liveFrameArrivalTimes_;
-    QHash<int, qint64> liveFrameSourceTimes_;
     QHash<QString, qint64> latestCentralEventSourceTimes_;
     QHash<QString, CentralEventData> activeCentralEvents_;
-    QHash<QString, QPointF> previousLivePositions_;
     QTimer liveFrameExpiryTimer_;
     QTimer liveFrameRenderTimer_;
     QRectF mapRect_;
-    QRectF configuredWorldBounds_;
-    QRectF automaticWorldBounds_;
-    bool hasConfiguredWorldBounds_ = false;
-    bool hasAutomaticWorldBounds_ = false;
     bool liveMode_ = false;
 };

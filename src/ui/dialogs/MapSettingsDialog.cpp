@@ -19,7 +19,7 @@
 
 namespace {
 constexpr int dialogPanelWidth = 720;
-constexpr int dialogPanelHeight = 440;
+constexpr int dialogPanelHeight = 600;
 
 class MapOptionCheckBox final : public QCheckBox {
 public:
@@ -83,7 +83,7 @@ MapSettingsDialog::MapSettingsDialog(QWidget* parent) : QWidget(parent) {
     panelLayout->setSpacing(22);
 
     auto* headerLayout = new QHBoxLayout();
-    auto* titleLabel = new QLabel(QStringLiteral("디지털 트윈 맵 설정"), panel);
+    auto* titleLabel = new QLabel(QStringLiteral("설정"), panel);
     titleLabel->setObjectName(QStringLiteral("mapSettingsTitleLabel"));
     headerLayout->addWidget(titleLabel);
     headerLayout->addStretch(1);
@@ -123,6 +123,27 @@ MapSettingsDialog::MapSettingsDialog(QWidget* parent) : QWidget(parent) {
     optionGrid->addWidget(cctvCheckBox_, 1, 0);
     optionGrid->addWidget(alertDeviceCheckBox_, 1, 1);
     optionsLayout->addLayout(optionGrid);
+
+    auto* cctvSectionTitleLabel = new QLabel(QStringLiteral("CCTV 알림 설정"), optionsFrame);
+    cctvSectionTitleLabel->setObjectName(QStringLiteral("mapSettingsSectionLabel"));
+    optionsLayout->addWidget(cctvSectionTitleLabel);
+
+    videoRiskBordersCheckBox_ = createOptionCheckBox(QStringLiteral("CCTV 테두리 알림 표시"), optionsFrame);
+    optionsLayout->addWidget(videoRiskBordersCheckBox_);
+
+    auto* blurSectionTitleLabel = new QLabel(QStringLiteral("블러 설정"), optionsFrame);
+    blurSectionTitleLabel->setObjectName(QStringLiteral("mapSettingsSectionLabel"));
+    optionsLayout->addWidget(blurSectionTitleLabel);
+
+    auto* blurOptionGrid = new QGridLayout();
+    blurOptionGrid->setHorizontalSpacing(72);
+    blurOptionGrid->setColumnStretch(0, 1);
+    blurOptionGrid->setColumnStretch(1, 1);
+    faceBlurCheckBox_ = createOptionCheckBox(QStringLiteral("얼굴"), optionsFrame);
+    licensePlateBlurCheckBox_ = createOptionCheckBox(QStringLiteral("차량 번호판"), optionsFrame);
+    blurOptionGrid->addWidget(faceBlurCheckBox_, 0, 0);
+    blurOptionGrid->addWidget(licensePlateBlurCheckBox_, 0, 1);
+    optionsLayout->addLayout(blurOptionGrid);
     panelLayout->addWidget(optionsFrame, 1);
 
     auto* buttonLayout = new QHBoxLayout();
@@ -139,7 +160,7 @@ MapSettingsDialog::MapSettingsDialog(QWidget* parent) : QWidget(parent) {
     applyButton->setCursor(Qt::PointingHandCursor);
     applyButton->setDefault(true);
     connect(applyButton, &QPushButton::clicked, this, [this]() {
-        emit settingsApplied(settings());
+        emit settingsApplied(settings(), videoRiskBordersEnabled(), faceBlurEnabled(), licensePlateBlurEnabled());
         hide();
     });
     buttonLayout->addWidget(applyButton);
@@ -160,6 +181,24 @@ void MapSettingsDialog::setSettings(const DigitalTwinMapDisplaySettings& setting
 }
 
 /**
+ * @brief         CCTV 경고·위험 테두리 알림의 체크 상태를 설정합니다.
+ * @param enabled 테두리 알림 표시 여부
+ */
+void MapSettingsDialog::setVideoRiskBordersEnabled(bool enabled) {
+    videoRiskBordersCheckBox_->setChecked(enabled);
+}
+
+/**
+ * @brief                     얼굴·차량 번호판 블러의 체크 상태를 설정합니다.
+ * @param faceEnabled         얼굴 블러 활성화 여부
+ * @param licensePlateEnabled 차량 번호판 블러 활성화 여부
+ */
+void MapSettingsDialog::setBlurTargetsEnabled(bool faceEnabled, bool licensePlateEnabled) {
+    faceBlurCheckBox_->setChecked(faceEnabled);
+    licensePlateBlurCheckBox_->setChecked(licensePlateEnabled);
+}
+
+/**
  * @brief  사용자가 선택한 네 개 표시 옵션을 반환합니다.
  * @return 현재 체크 상태로 구성한 맵 표시 설정
  */
@@ -171,6 +210,24 @@ DigitalTwinMapDisplaySettings MapSettingsDialog::settings() const {
     displaySettings.showAlertDevice = alertDeviceCheckBox_->isChecked();
     return displaySettings;
 }
+
+/**
+ * @brief  사용자가 선택한 CCTV 테두리 알림 표시 여부를 반환합니다.
+ * @return 테두리 알림을 표시하면 true
+ */
+bool MapSettingsDialog::videoRiskBordersEnabled() const { return videoRiskBordersCheckBox_->isChecked(); }
+
+/**
+ * @brief  얼굴 블러 표시 여부를 반환합니다.
+ * @return 얼굴 블러가 활성화되어 있으면 true
+ */
+bool MapSettingsDialog::faceBlurEnabled() const { return faceBlurCheckBox_->isChecked(); }
+
+/**
+ * @brief  차량 번호판 블러 표시 여부를 반환합니다.
+ * @return 차량 번호판 블러가 활성화되어 있으면 true
+ */
+bool MapSettingsDialog::licensePlateBlurEnabled() const { return licensePlateBlurCheckBox_->isChecked(); }
 
 /**
  * @brief       팝업을 메인 윈도우의 클라이언트 영역 전체에 맞춰 표시합니다.

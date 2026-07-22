@@ -53,14 +53,10 @@ QString positionTextForObject(const DigitalTwinObject& object) {
 /**
  * @brief         구역 판정 구현 전까지 사용할 안정적인 더미 구역명을 반환합니다.
  * @param object  더미 구역을 배정할 객체
- * @return        A-01~A-04 중 하나
+ * @return        CH-01~CH-04 중 하나
  */
 QString dummyAreaForObject(const DigitalTwinObject& object) {
-    bool ok = false;
-    const int sequence = object.objectId.right(3).toInt(&ok);
-    const int areaIndex = ok ? sequence % 4 : 0;
-
-    return QStringLiteral("A-%1").arg(areaIndex + 1, 2, 10, QLatin1Char('0'));
+    return QStringLiteral("CH-%1").arg(object.channelIndex + 1, 2, 10, QLatin1Char('0'));
 }
 
 /**

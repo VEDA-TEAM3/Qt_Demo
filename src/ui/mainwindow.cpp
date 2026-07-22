@@ -1,7 +1,5 @@
 #include "ui/mainwindow.h"
 
-#include <algorithm>
-
 #include <QDateTime>
 #include <QDebug>
 #include <QEvent>
@@ -19,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QVector>
 #include <QWidget>
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -34,6 +33,7 @@
 #include "ui/panels/DeviceStatusPanel.h"
 #include "ui/panels/EventLogPanel.h"
 #include "ui/panels/ObjectListPanel.h"
+#include "ui/VideoRiskBorderFrame.h"
 #include "ui_mainwindow.h"
 #include "video/StreamReceiverFactory.h"
 #include "video/StreamSessionManager.h"
@@ -94,8 +94,7 @@ void MainWindow::setupDashboardLayout() {
 
     const QPixmap settingsIcon(QStringLiteral(":/icons/config_icon.png"));
     ui_->settingsLabel->setText({});
-    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(29, 29), Qt::KeepAspectRatio,
-                                                      Qt::SmoothTransformation));
+    ui_->settingsLabel->setPixmap(settingsIcon.scaled(QSize(29, 29), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     ui_->settingsLabel->setAlignment(Qt::AlignCenter);
     ui_->settingsLabel->setFixedSize(65, 49);
     ui_->settingsLabel->setFocusPolicy(Qt::StrongFocus);
@@ -104,11 +103,19 @@ void MainWindow::setupDashboardLayout() {
 
     mapSettingsDialog_ = new MapSettingsDialog(this);
     connect(mapSettingsDialog_, &MapSettingsDialog::settingsApplied, this,
-            [this](const DigitalTwinMapDisplaySettings& settings) {
+            [this](const DigitalTwinMapDisplaySettings& settings, bool videoRiskBordersEnabled, bool faceBlurEnabled,
+                   bool licensePlateBlurEnabled) {
                 mapDisplaySettings_ = settings;
+                videoRiskBordersEnabled_ = videoRiskBordersEnabled;
+                faceBlurEnabled_ = faceBlurEnabled;
+                licensePlateBlurEnabled_ = licensePlateBlurEnabled;
                 if (ui_->digitalTwinMapWidget) {
                     ui_->digitalTwinMapWidget->applyDisplaySettings(mapDisplaySettings_);
                 }
+                if (streamSessionManager_) {
+                    streamSessionManager_->setBlurTargetsEnabled(faceBlurEnabled_, licensePlateBlurEnabled_);
+                }
+                updateVideoRiskBorders(latestVideoRiskLevels_);
             });
     updateCameraSelectionLabel(nullptr);
 }
@@ -151,6 +158,8 @@ void MainWindow::openMapSettingsDialog() {
     }
 
     mapSettingsDialog_->setSettings(mapDisplaySettings_);
+    mapSettingsDialog_->setVideoRiskBordersEnabled(videoRiskBordersEnabled_);
+    mapSettingsDialog_->setBlurTargetsEnabled(faceBlurEnabled_, licensePlateBlurEnabled_);
     mapSettingsDialog_->setGeometry(rect());
     mapSettingsDialog_->show();
     mapSettingsDialog_->raise();
@@ -197,9 +206,9 @@ void MainWindow::updateSystemStatus(bool connected) {
  * @brief   네 CCTV 채널이 모두 첫 프레임을 수신했는지 상단 연결 상태에 반영합니다.
  */
 void MainWindow::updateStreamConnectionStatus() {
-    const bool allStreamsReady = streamChannelReady_.size() == requiredCctvChannelCount &&
-                                 std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(),
-                                             [](bool ready) { return ready; });
+    const bool allStreamsReady =
+        streamChannelReady_.size() == requiredCctvChannelCount &&
+        std::all_of(streamChannelReady_.cbegin(), streamChannelReady_.cend(), [](bool ready) { return ready; });
 
     setTopBarStatus(ui_->connectionStatusLabel, QStringLiteral("CCTV 상태"),
                     allStreamsReady ? QStringLiteral("● 정상") : QStringLiteral("● 연결 중"),
@@ -263,6 +272,8 @@ void MainWindow::setupDashboardPanelCoordinator() {
 
     connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::simulationSnapshotUpdated, dashboardPanelCoordinator_,
             &DashboardPanelCoordinator::consumeDigitalTwinSnapshot, Qt::QueuedConnection);
+    connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::channelRiskLevelsChanged, this,
+            &MainWindow::updateVideoRiskBorders);
 }
 
 /**
@@ -284,23 +295,20 @@ void MainWindow::setupDeviceStatusService() {
             &MainWindow::updateSystemStatus, Qt::QueuedConnection);
 
     if (ui_->digitalTwinMapWidget) {
-        connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::setDeviceSignalAvailable,
-                Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyDeviceChannelStatuses,
-                Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
-                ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::brokerConnectionChanged, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::setDeviceSignalAvailable, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyDeviceChannelStatuses, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
     }
 
     if (dashboardPanelCoordinator_) {
         dashboardPanelCoordinator_->bindDeviceStatusService(deviceStatusService_.get());
-        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived,
-                dashboardPanelCoordinator_, &DashboardPanelCoordinator::consumeCentralEvent,
-                Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, dashboardPanelCoordinator_,
+                &DashboardPanelCoordinator::consumeCentralEvent, Qt::QueuedConnection);
     }
 
     deviceStatusService_->start();
@@ -394,9 +402,10 @@ void MainWindow::setupVideoViewEvents() {
 
         grid->removeWidget(widget);
 
-        auto* tileFrame = new QFrame(ui_->cctvCard);
+        auto* tileFrame = new VideoRiskBorderFrame(ui_->cctvCard);
         tileFrame->setObjectName(QStringLiteral("videoTileFrame"));
         tileFrame->setProperty("hovered", false);
+        tileFrame->setProperty("riskLevel", QStringLiteral("normal"));
         tileFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
         auto* tileLayout = new QVBoxLayout(tileFrame);
@@ -410,11 +419,51 @@ void MainWindow::setupVideoViewEvents() {
         connect(clickable, &ClickableVideoWidget::doubleClicked, this,
                 [this](ClickableVideoWidget* target) { toggleExpandVideo(target); });
         connect(clickable, &ClickableVideoWidget::hoverChanged, tileFrame, [tileFrame](bool hovered) {
-            tileFrame->setProperty("hovered", hovered);
+            const bool riskActive = tileFrame->property("riskLevel").toString() != QStringLiteral("normal");
+            tileFrame->setProperty("hovered", hovered && !riskActive);
             tileFrame->style()->unpolish(tileFrame);
             tileFrame->style()->polish(tileFrame);
             tileFrame->update();
         });
+    }
+}
+
+/**
+ * @brief             디지털 트윈의 채널별 위험 상태를 CCTV 타일 테두리에 반영합니다.
+ * @param riskLevels  CH-01부터 CH-04까지의 현재 위험 단계
+ */
+void MainWindow::updateVideoRiskBorders(const QVector<DigitalTwinRiskLevel>& riskLevels) {
+    latestVideoRiskLevels_ = riskLevels;
+    const qsizetype count = qMin(videoTileFrames_.size(), riskLevels.size());
+
+    for (qsizetype index = 0; index < count; ++index) {
+        VideoRiskBorderFrame* tileFrame = videoTileFrames_[index];
+        if (!tileFrame) {
+            continue;
+        }
+
+        const DigitalTwinRiskLevel visibleRiskLevel =
+            videoRiskBordersEnabled_ ? riskLevels[index] : DigitalTwinRiskLevel::Normal;
+
+        QString riskName = QStringLiteral("normal");
+        if (visibleRiskLevel == DigitalTwinRiskLevel::Danger) {
+            riskName = QStringLiteral("danger");
+        } else if (visibleRiskLevel == DigitalTwinRiskLevel::Warning) {
+            riskName = QStringLiteral("warning");
+        }
+
+        if (tileFrame->property("riskLevel").toString() == riskName) {
+            continue;
+        }
+
+        tileFrame->setProperty("riskLevel", riskName);
+        tileFrame->setRiskLevel(visibleRiskLevel);
+        const bool hovered = riskName == QStringLiteral("normal") && videoWidgets_[index] &&
+                             videoWidgets_[index]->underMouse();
+        tileFrame->setProperty("hovered", hovered);
+        tileFrame->style()->unpolish(tileFrame);
+        tileFrame->style()->polish(tileFrame);
+        tileFrame->update();
     }
 }
 
@@ -433,6 +482,12 @@ void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory
     }
 
     streamSessionManager_ = new StreamSessionManager(std::move(receiverFactory), this);
+    streamSessionManager_->setBlurTargetsEnabled(faceBlurEnabled_, licensePlateBlurEnabled_);
+
+    if (deviceStatusService_) {
+        connect(deviceStatusService_.get(), &DeviceStatusService::blurFrameReceived, streamSessionManager_,
+                &StreamSessionManager::submitBlurFrame, Qt::AutoConnection);
+    }
 
     connect(streamSessionManager_, &StreamSessionManager::loadingChanged, this, [this](int channelIndex, bool loading) {
         if (channelIndex < 0 || channelIndex >= videoWidgets_.size()) {

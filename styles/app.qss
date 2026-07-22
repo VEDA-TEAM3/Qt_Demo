@@ -291,7 +291,6 @@ QFrame#deviceChannelCard[healthState="confirmed"] {
     border-color: #25527c;
 }
 
-QFrame#deviceChannelCard[healthState="unknown"],
 QFrame#deviceChannelCard[healthState="failed"] {
     border-color: #ff5a5f;
 }

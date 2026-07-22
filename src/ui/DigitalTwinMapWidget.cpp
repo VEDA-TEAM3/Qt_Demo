@@ -13,7 +13,6 @@
 #include <QPainterPath>
 #include <QPen>
 #include <QPixmap>
-#include <QProcessEnvironment>
 #include <QResizeEvent>
 #include <QSet>
 #include <QSize>
@@ -24,6 +23,7 @@
 #include <utility>
 
 #include "model/DigitalTwinSimulationWorker.h"
+#include "model/TopViewObjectTracker.h"
 #include "overlays/DangerAlertOverlay.h"
 #include "ui/DigitalTwinMapSceneBuilder.h"
 #include "ui/DigitalTwinObjectStyleProvider.h"
@@ -35,25 +35,7 @@ constexpr double movingIconRotationOffsetDegrees = 90.0;
 constexpr int liveFrameExpiryMsec = 5000;
 constexpr int liveFrameExpiryPollMsec = 1000;
 constexpr int liveFrameRenderIntervalMsec = 50;
-
-bool configuredWorldBounds(QRectF& bounds) {
-    const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    bool minXOk = false;
-    bool minYOk = false;
-    bool maxXOk = false;
-    bool maxYOk = false;
-    const double minX = environment.value(QStringLiteral("VEDA_MAP_MIN_X")).toDouble(&minXOk);
-    const double minY = environment.value(QStringLiteral("VEDA_MAP_MIN_Y")).toDouble(&minYOk);
-    const double maxX = environment.value(QStringLiteral("VEDA_MAP_MAX_X")).toDouble(&maxXOk);
-    const double maxY = environment.value(QStringLiteral("VEDA_MAP_MAX_Y")).toDouble(&maxYOk);
-
-    if (!minXOk || !minYOk || !maxXOk || !maxYOk || maxX <= minX || maxY <= minY) {
-        return false;
-    }
-
-    bounds = QRectF(minX, minY, maxX - minX, maxY - minY);
-    return true;
-}
+constexpr int digitalTwinChannelCount = 4;
 
 QString centralEventKey(const CentralEventData& event) {
     const QString identity = event.eventId.isEmpty() ? event.eventType : event.eventId;
@@ -68,6 +50,19 @@ DigitalTwinRiskLevel riskLevelForSeverity(int severity) {
         return DigitalTwinRiskLevel::Warning;
     }
     return DigitalTwinRiskLevel::Normal;
+}
+
+int riskPriority(DigitalTwinRiskLevel riskLevel) {
+    switch (riskLevel) {
+        case DigitalTwinRiskLevel::Danger:
+            return 2;
+        case DigitalTwinRiskLevel::Warning:
+            return 1;
+        case DigitalTwinRiskLevel::Normal:
+            return 0;
+    }
+
+    return 0;
 }
 
 /**
@@ -198,13 +193,13 @@ bool hasActiveDanger(const DigitalTwinSnapshot& snapshot) {
 DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     : QGraphicsView(parent),
       sceneBuilder_(std::make_shared<DemoParkingMapSceneBuilder>()),
-      objectStyleProvider_(std::make_shared<DefaultDigitalTwinObjectStyleProvider>()) {
+      objectStyleProvider_(std::make_shared<DefaultDigitalTwinObjectStyleProvider>()),
+      topViewObjectTracker_(std::make_unique<TopViewObjectTracker>(digitalTwinChannelCount)) {
     qRegisterMetaType<DigitalTwinObject>("DigitalTwinObject");
     qRegisterMetaType<DigitalTwinRiskEvent>("DigitalTwinRiskEvent");
     qRegisterMetaType<DigitalTwinSnapshot>("DigitalTwinSnapshot");
     qRegisterMetaType<QVector<DigitalTwinObject>>("QVector<DigitalTwinObject>");
 
-    hasConfiguredWorldBounds_ = configuredWorldBounds(configuredWorldBounds_);
     liveFrameExpiryTimer_.setInterval(liveFrameExpiryPollMsec);
     liveFrameExpiryTimer_.setTimerType(Qt::CoarseTimer);
     connect(&liveFrameExpiryTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::expireStaleLiveFrames);
@@ -304,20 +299,17 @@ void DigitalTwinMapWidget::applyTopViewFrame(TopViewFrameData frame) {
         return;
     }
 
-    if (frame.sourceTimestamp <= liveFrameSourceTimes_.value(frame.channelIndex, 0)) {
-        return;
-    }
-
     if (!liveMode_) {
         stopDemo();
         liveMode_ = true;
-        previousLivePositions_.clear();
+        topViewObjectTracker_->reset();
         liveFrameExpiryTimer_.start();
     }
 
-    liveFrameSourceTimes_.insert(frame.channelIndex, frame.sourceTimestamp);
-    liveFrameArrivalTimes_.insert(frame.channelIndex, QDateTime::currentMSecsSinceEpoch());
-    liveFrames_.insert(frame.channelIndex, std::move(frame));
+    if (!topViewObjectTracker_->submitFrame(std::move(frame), QDateTime::currentMSecsSinceEpoch())) {
+        return;
+    }
+
     if (!liveFrameRenderTimer_.isActive()) {
         liveFrameRenderTimer_.start();
     }
@@ -364,86 +356,17 @@ void DigitalTwinMapWidget::setDeviceSignalAvailable(bool available) {
 }
 
 void DigitalTwinMapWidget::rebuildLiveSnapshot() {
-    QVector<QPointF> observedPositions;
-    for (auto frameIterator = liveFrames_.cbegin(); frameIterator != liveFrames_.cend(); ++frameIterator) {
-        for (const TopViewObjectData& object : frameIterator.value().objects) {
-            observedPositions.append(object.worldPosition);
-        }
+    QVector<DigitalTwinRiskLevel> channelRiskLevels(digitalTwinChannelCount, DigitalTwinRiskLevel::Normal);
+    for (int channelIndex = 0; channelIndex < digitalTwinChannelCount; ++channelIndex) {
+        channelRiskLevels[channelIndex] = riskLevelForSeverity(activeSeverityForChannel(channelIndex));
     }
 
-    if (!hasConfiguredWorldBounds_ && !observedPositions.isEmpty()) {
-        double minX = observedPositions.first().x();
-        double maxX = minX;
-        double minY = observedPositions.first().y();
-        double maxY = minY;
-        bool normalizedCoordinates = true;
-
-        for (const QPointF& position : observedPositions) {
-            minX = qMin(minX, position.x());
-            maxX = qMax(maxX, position.x());
-            minY = qMin(minY, position.y());
-            maxY = qMax(maxY, position.y());
-            normalizedCoordinates = normalizedCoordinates && position.x() >= 0.0 && position.x() <= 1.0 &&
-                                    position.y() >= 0.0 && position.y() <= 1.0;
-        }
-
-        QRectF observedBounds;
-        if (normalizedCoordinates) {
-            observedBounds = QRectF(0.0, 0.0, 1.0, 1.0);
-        } else {
-            const double width = qMax(1.0, maxX - minX);
-            const double height = qMax(1.0, maxY - minY);
-            const double horizontalMargin = width * 0.08;
-            const double verticalMargin = height * 0.08;
-            observedBounds = QRectF(minX - horizontalMargin, minY - verticalMargin,
-                                    width + horizontalMargin * 2.0, height + verticalMargin * 2.0);
-        }
-
-        if (!hasAutomaticWorldBounds_) {
-            automaticWorldBounds_ = observedBounds;
-            hasAutomaticWorldBounds_ = true;
-        } else {
-            automaticWorldBounds_ = automaticWorldBounds_.united(observedBounds);
-        }
-    }
-
-    DigitalTwinSnapshot snapshot;
-    QHash<QString, QPointF> currentPositions;
-
-    for (auto frameIterator = liveFrames_.cbegin(); frameIterator != liveFrames_.cend(); ++frameIterator) {
-        const int channelIndex = frameIterator.key();
-        const DigitalTwinRiskLevel riskLevel = riskLevelForSeverity(activeSeverityForChannel(channelIndex));
-
-        for (const TopViewObjectData& sourceObject : frameIterator.value().objects) {
-            DigitalTwinObject object;
-            object.objectId = QStringLiteral("CH%1-%2").arg(channelIndex + 1).arg(sourceObject.id);
-            object.type = sourceObject.objectClass == QStringLiteral("Human")
-                              ? DigitalTwinObjectType::Pedestrian
-                              : DigitalTwinObjectType::Vehicle;
-            object.position = normalizedWorldPosition(sourceObject.worldPosition);
-            object.velocity = object.position - previousLivePositions_.value(object.objectId, object.position);
-            object.riskLevel = riskLevel;
-            snapshot.objects.append(object);
-            currentPositions.insert(object.objectId, object.position);
-        }
-    }
-
-    previousLivePositions_ = std::move(currentPositions);
+    const DigitalTwinSnapshot snapshot = topViewObjectTracker_->buildSnapshot(channelRiskLevels);
     applySimulationSnapshot(snapshot);
 
     if (dangerAlertOverlay_) {
         dangerAlertOverlay_->setActive(hasActiveCentralDanger() || hasActiveDanger(snapshot));
     }
-}
-
-QPointF DigitalTwinMapWidget::normalizedWorldPosition(const QPointF& worldPosition) const {
-    const QRectF bounds = hasConfiguredWorldBounds_ ? configuredWorldBounds_ : automaticWorldBounds_;
-    if (bounds.width() <= 0.0 || bounds.height() <= 0.0) {
-        return QPointF(0.5, 0.5);
-    }
-
-    return QPointF(qBound(0.0, (worldPosition.x() - bounds.left()) / bounds.width(), 1.0),
-                   qBound(0.0, (worldPosition.y() - bounds.top()) / bounds.height(), 1.0));
 }
 
 int DigitalTwinMapWidget::activeSeverityForChannel(int channelIndex) const {
@@ -466,22 +389,7 @@ bool DigitalTwinMapWidget::hasActiveCentralDanger() const {
 }
 
 void DigitalTwinMapWidget::expireStaleLiveFrames() {
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    bool changed = false;
-
-    for (auto iterator = liveFrameArrivalTimes_.begin(); iterator != liveFrameArrivalTimes_.end();) {
-        if (now - iterator.value() <= liveFrameExpiryMsec) {
-            ++iterator;
-            continue;
-        }
-
-        const int channelIndex = iterator.key();
-        iterator = liveFrameArrivalTimes_.erase(iterator);
-        liveFrames_.remove(channelIndex);
-        changed = true;
-    }
-
-    if (changed) {
+    if (topViewObjectTracker_->expireStaleFrames(QDateTime::currentMSecsSinceEpoch(), liveFrameExpiryMsec)) {
         rebuildLiveSnapshot();
     }
 }
@@ -548,6 +456,35 @@ void DigitalTwinMapWidget::applySimulationSnapshot(const DigitalTwinSnapshot& sn
 
     applyObjectUpdates(snapshot.objects);
     emit simulationSnapshotUpdated(snapshot);
+    emit channelRiskLevelsChanged(channelRiskLevels(snapshot));
+}
+
+/**
+ * @brief           객체와 중앙 이벤트를 합쳐 채널별 최고 위험 단계를 계산합니다.
+ * @param snapshot  현재 디지털 트윈 객체 상태
+ * @return          CH-01부터 CH-04까지의 위험 단계
+ */
+QVector<DigitalTwinRiskLevel> DigitalTwinMapWidget::channelRiskLevels(const DigitalTwinSnapshot& snapshot) const {
+    QVector<DigitalTwinRiskLevel> riskLevels(digitalTwinChannelCount, DigitalTwinRiskLevel::Normal);
+
+    for (const DigitalTwinObject& object : snapshot.objects) {
+        if (object.channelIndex < 0 || object.channelIndex >= riskLevels.size()) {
+            continue;
+        }
+
+        if (riskPriority(object.riskLevel) > riskPriority(riskLevels[object.channelIndex])) {
+            riskLevels[object.channelIndex] = object.riskLevel;
+        }
+    }
+
+    for (int channelIndex = 0; channelIndex < riskLevels.size(); ++channelIndex) {
+        const DigitalTwinRiskLevel centralRisk = riskLevelForSeverity(activeSeverityForChannel(channelIndex));
+        if (riskPriority(centralRisk) > riskPriority(riskLevels[channelIndex])) {
+            riskLevels[channelIndex] = centralRisk;
+        }
+    }
+
+    return riskLevels;
 }
 
 /**

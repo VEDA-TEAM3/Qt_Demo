@@ -53,6 +53,8 @@ qt_add_executable(Qtcctvclient
     src/ui/DigitalTwinObjectTableModel.cpp
     include/ui/EventLogTableModel.h
     src/ui/EventLogTableModel.cpp
+    include/ui/VideoRiskBorderFrame.h
+    src/ui/VideoRiskBorderFrame.cpp
 
     include/overlays/RadarPulseItem.h
     src/overlays/RadarPulseItem.cpp
@@ -69,12 +71,18 @@ qt_add_executable(Qtcctvclient
     src/video/GstStreamReceiverFactory.cpp
     include/video/GstRtspReceiver.h
     src/video/GstRtspReceiver.cpp
+    include/video/BlurProcessor.h
+    src/video/BlurProcessor.cpp
+    include/video/BlurVideoFilter.h
+    src/video/BlurVideoFilter.cpp
 
     include/model/DigitalTwinTypes.h
     include/model/DigitalTwinMapDisplaySettings.h
     include/model/DeviceStatus.h
     include/model/DeviceStatusReport.h
     include/model/MqttRealtimeData.h
+    include/model/TopViewObjectTracker.h
+    src/model/TopViewObjectTracker.cpp
     include/model/DigitalTwinObjectSpawner.h
     src/model/RandomEdgeObjectSpawner.cpp
     include/model/DigitalTwinRiskPolicy.h
@@ -90,6 +98,10 @@ qt_add_executable(Qtcctvclient
     src/network/DeviceStatusGateway.cpp
     include/network/DeviceStatusGatewayFactory.h
     include/network/MqttDeviceStatusGateway.h
+    include/network/BlurMessageParser.h
+    src/network/BlurMessageParser.cpp
+    include/network/BlurFrameDispatcher.h
+    src/network/BlurFrameDispatcher.cpp
     include/network/TopViewFrameDispatcher.h
     src/network/TopViewFrameDispatcher.cpp
     src/network/MqttDeviceStatusGateway.cpp
@@ -218,6 +230,7 @@ target_link_libraries(Qtcctvclient PRIVATE
     Qt6::Network
 
     gstreamer-1.0
+    gstbase-1.0
     gstrtsp-1.0
     gstvideo-1.0
     gobject-2.0

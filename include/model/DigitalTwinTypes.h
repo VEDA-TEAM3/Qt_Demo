@@ -19,6 +19,7 @@ enum class DigitalTwinRiskLevel {
 
 struct DigitalTwinObject {
     QString objectId;
+    int channelIndex = 0;
     DigitalTwinObjectType type = DigitalTwinObjectType::Vehicle;
     QPointF position;
     QPointF velocity;
@@ -45,7 +46,9 @@ struct DigitalTwinSnapshot {
 };
 
 Q_DECLARE_METATYPE(DigitalTwinObject)
+Q_DECLARE_METATYPE(DigitalTwinRiskLevel)
 Q_DECLARE_METATYPE(DigitalTwinRiskEvent)
 Q_DECLARE_METATYPE(DigitalTwinPairRiskState)
 Q_DECLARE_METATYPE(DigitalTwinSnapshot)
 Q_DECLARE_METATYPE(QVector<DigitalTwinObject>)
+Q_DECLARE_METATYPE(QVector<DigitalTwinRiskLevel>)

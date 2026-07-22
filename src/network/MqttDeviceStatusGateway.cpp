@@ -1,7 +1,5 @@
 #include "network/MqttDeviceStatusGateway.h"
 
-#include "network/TopViewFrameDispatcher.h"
-
 #include <QDateTime>
 #include <QDebug>
 #include <QFileInfo>
@@ -20,6 +18,10 @@
 #include <cmath>
 #include <utility>
 
+#include "network/BlurMessageParser.h"
+#include "network/BlurFrameDispatcher.h"
+#include "network/TopViewFrameDispatcher.h"
+
 namespace {
 constexpr auto controllerStatusTopic = "veda/hw/+/status";
 constexpr auto centralStatusTopic = "veda/hw/status";
@@ -27,12 +29,14 @@ constexpr auto sensorAliveTopic = "veda/ch/+/alive";
 constexpr auto directTopViewTopic = "veda/ch/+/topview";
 constexpr auto relayedTopViewTopic = "veda/qt/ch/+/topview";
 constexpr auto centralEventTopic = "veda/qt/event";
-constexpr auto visionDetectionsTopic = "veda/vision/+/detections";
+constexpr auto blurTopic = "veda/ch/+/blur";
 constexpr int statusQos = 1;
 constexpr int topViewQos = 0;
+constexpr int blurQos = 0;
 constexpr int reconnectIntervalMsec = 3000;
-constexpr int deviceChannelCount = 4;
+constexpr int mqttDeviceChannelCount = 4;
 constexpr int protocolVersion = 1;
+constexpr int blurDebugLogIntervalMsec = 1000;
 constexpr int topViewDebugLogIntervalMsec = 1000;
 constexpr qsizetype maximumDebugPayloadLength = 512;
 
@@ -71,11 +75,6 @@ QString debugPayloadText(const QByteArray& payload) {
         text = text.left(maximumDebugPayloadLength) + QStringLiteral("...");
     }
     return text;
-}
-
-bool isVisionDetectionsTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/vision/[1-4]/detections$"));
-    return topicPattern.match(topic).hasMatch();
 }
 
 bool readInteger(const QJsonObject& object, const QString& name, qint64& value) {
@@ -118,13 +117,12 @@ bool parseOutputState(const QJsonObject& object, DeviceOutputState& outputs, QSt
 
 int channelIndexForStatus(qint64 channelId) {
     // Both the per-node controller and the fixed central server use wire IDs 1..4.
-    return channelId >= 1 && channelId <= deviceChannelCount ? static_cast<int>(channelId - 1) : -1;
+    return channelId >= 1 && channelId <= mqttDeviceChannelCount ? static_cast<int>(channelId - 1) : -1;
 }
 
 int channelIndexFromControllerTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(
-        QStringLiteral("^veda/hw/(?:rpi|ch|channel)?([1-4])/status$"),
-        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/hw/(?:rpi|ch|channel)?([1-4])/status$"),
+                                                 QRegularExpression::CaseInsensitiveOption);
     const QRegularExpressionMatch match = topicPattern.match(topic);
     return match.hasMatch() ? match.captured(1).toInt() - 1 : -1;
 }
@@ -271,8 +269,7 @@ bool readFiniteNumber(const QJsonObject& object, const QString& name, double& va
 }
 
 bool parseTopViewPayload(const QByteArray& payload, const QString& topic, TopViewFrameData& frame, QString& error) {
-    static const QRegularExpression topicPattern(
-        QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
+    static const QRegularExpression topicPattern(QStringLiteral("^veda/(?:qt/)?ch/([0-3])/topview$"));
     const QRegularExpressionMatch match = topicPattern.match(topic);
     if (!match.hasMatch()) {
         error = QStringLiteral("Invalid TopView topic: %1").arg(topic);
@@ -441,8 +438,10 @@ MqttDeviceStatusGateway::MqttDeviceStatusGateway(MqttDeviceStatusConfig config, 
     connect(reconnectTimer_, &QTimer::timeout, this, &MqttDeviceStatusGateway::connectToBroker);
 
     topViewDispatcher_ = new TopViewFrameDispatcher(this);
-    connect(topViewDispatcher_, &TopViewFrameDispatcher::frameReady, this,
-            &DeviceStatusGateway::topViewFrameReceived);
+    connect(topViewDispatcher_, &TopViewFrameDispatcher::frameReady, this, &DeviceStatusGateway::topViewFrameReceived);
+
+    blurDispatcher_ = new BlurFrameDispatcher(this);
+    connect(blurDispatcher_, &BlurFrameDispatcher::frameReady, this, &DeviceStatusGateway::blurFrameReceived);
 }
 
 void MqttDeviceStatusGateway::start() {
@@ -451,7 +450,9 @@ void MqttDeviceStatusGateway::start() {
     }
 
     stopping_ = false;
+    lastBlurDebugLogMsec_.fill(0);
     lastTopViewDebugLogMsec_.fill(0);
+    blurDispatcher_->start();
     topViewDispatcher_->start();
     client_ = new QMqttClient(this);
     client_->setHostname(config_.host);
@@ -462,9 +463,7 @@ void MqttDeviceStatusGateway::start() {
 
     connect(client_, &QMqttClient::connected, this, [this]() {
         if (config_.debugLogging) {
-            qInfo().noquote() << QStringLiteral("[MQTT] Connected host=%1 port=%2")
-                                     .arg(config_.host)
-                                     .arg(config_.port);
+            qInfo().noquote() << QStringLiteral("[MQTT] Connected host=%1 port=%2").arg(config_.host).arg(config_.port);
         }
         emit brokerConnectionChanged(true);
         subscribeToTopics();
@@ -491,6 +490,7 @@ void MqttDeviceStatusGateway::start() {
 void MqttDeviceStatusGateway::stop() {
     stopping_ = true;
     reconnectTimer_->stop();
+    blurDispatcher_->stop();
     topViewDispatcher_->stop();
 
     if (!client_) {
@@ -536,13 +536,10 @@ void MqttDeviceStatusGateway::subscribeToTopics() {
     const struct {
         const char* topic;
         quint8 qos;
-    } subscriptions[] = {{controllerStatusTopic, statusQos},
-                         {centralStatusTopic, statusQos},
-                         {sensorAliveTopic, statusQos},
-                         {directTopViewTopic, topViewQos},
-                         {relayedTopViewTopic, topViewQos},
-                         {centralEventTopic, statusQos},
-                         {visionDetectionsTopic, topViewQos}};
+    } subscriptions[] = {{controllerStatusTopic, statusQos}, {centralStatusTopic, statusQos},
+                         {sensorAliveTopic, statusQos},      {directTopViewTopic, topViewQos},
+                         {relayedTopViewTopic, topViewQos},  {centralEventTopic, statusQos},
+                         {blurTopic, blurQos}};
 
     for (const auto& subscription : subscriptions) {
         if (!client_->subscribe(QString::fromLatin1(subscription.topic), subscription.qos)) {
@@ -562,16 +559,20 @@ void MqttDeviceStatusGateway::scheduleReconnect() {
 }
 
 void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QString& topic) {
-    if (config_.debugLogging && !topic.endsWith(QStringLiteral("/topview"))) {
+    if (config_.debugLogging && !topic.endsWith(QStringLiteral("/topview")) &&
+        !BlurMessageParser::matchesTopic(topic)) {
         logReceivedMessage(payload, topic);
     }
 
-    if (isVisionDetectionsTopic(topic)) {
-        if (config_.debugLogging) {
-            qInfo().noquote() << QStringLiteral("[MQTT VISION] Detection payload received: topic=%1 bytes=%2")
-                                     .arg(topic)
-                                     .arg(payload.size());
+    if (BlurMessageParser::matchesTopic(topic)) {
+        BlurFrameData frame;
+        QString error;
+        if (!BlurMessageParser::parse(payload, topic, frame, error)) {
+            emitProtocolError(error);
+            return;
         }
+        logBlurFrame(topic, frame);
+        blurDispatcher_->submitFrame(std::move(frame));
         return;
     }
 
@@ -590,8 +591,8 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
         report.sourceTimestamp = event.sourceTimestamp;
         report.node = QStringLiteral("central-control-server");
         report.detail = event.detail;
-        report.type = event.hardwareOk ? DeviceStatusReportType::FeedbackConfirmed
-                                       : DeviceStatusReportType::FeedbackFailed;
+        report.type =
+            event.hardwareOk ? DeviceStatusReportType::FeedbackConfirmed : DeviceStatusReportType::FeedbackFailed;
         report.hasOutputState = event.hardwareOk;
         report.outputs = event.hardwareState;
         emit reportReceived(std::move(report));
@@ -644,12 +645,36 @@ void MqttDeviceStatusGateway::logReceivedMessage(const QByteArray& payload, cons
 }
 
 /**
+ * @brief        고빈도 블러 수신 상태를 채널별 제한 주기로 출력합니다.
+ * @param topic  수신한 MQTT 토픽
+ * @param frame  검증을 통과한 블러 프레임
+ */
+void MqttDeviceStatusGateway::logBlurFrame(const QString& topic, const BlurFrameData& frame) {
+    if (!config_.debugLogging || frame.channelIndex < 0 || frame.channelIndex >= mqttDeviceChannelCount) {
+        return;
+    }
+
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    qint64& lastLogMsec = lastBlurDebugLogMsec_[static_cast<std::size_t>(frame.channelIndex)];
+    if (lastLogMsec > 0 && nowMsec - lastLogMsec < blurDebugLogIntervalMsec) {
+        return;
+    }
+
+    lastLogMsec = nowMsec;
+    qInfo().noquote() << QStringLiteral("[MQTT BLUR] topic=%1 channel=%2 ts=%3 regions=%4")
+                             .arg(topic)
+                             .arg(frame.channelIndex)
+                             .arg(frame.sourceTimestamp)
+                             .arg(frame.regions.size());
+}
+
+/**
  * @brief        고빈도 TopView 수신 상태를 채널별 제한 주기로 출력합니다.
  * @param topic  수신한 MQTT 토픽
  * @param frame  검증을 통과한 TopView 프레임
  */
 void MqttDeviceStatusGateway::logTopViewFrame(const QString& topic, const TopViewFrameData& frame) {
-    if (!config_.debugLogging || frame.channelIndex < 0 || frame.channelIndex >= deviceChannelCount) {
+    if (!config_.debugLogging || frame.channelIndex < 0 || frame.channelIndex >= mqttDeviceChannelCount) {
         return;
     }
 
