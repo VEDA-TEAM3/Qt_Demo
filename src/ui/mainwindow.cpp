@@ -27,13 +27,13 @@
 #include "ui/ClickableVideoWidget.h"
 #include "ui/DashboardLayout.h"
 #include "ui/DigitalTwinMapWidget.h"
+#include "ui/VideoRiskBorderFrame.h"
 #include "ui/dialogs/MapSettingsDialog.h"
 #include "ui/panels/DashboardPanelCoordinator.h"
 #include "ui/panels/DashboardPanelFactory.h"
 #include "ui/panels/DeviceStatusPanel.h"
 #include "ui/panels/EventLogPanel.h"
 #include "ui/panels/ObjectListPanel.h"
-#include "ui/VideoRiskBorderFrame.h"
 #include "ui_mainwindow.h"
 #include "video/StreamReceiverFactory.h"
 #include "video/StreamSessionManager.h"
@@ -299,8 +299,8 @@ void MainWindow::setupDeviceStatusService() {
                 &DigitalTwinMapWidget::setDeviceSignalAvailable, Qt::QueuedConnection);
         connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived, ui_->digitalTwinMapWidget,
                 &DigitalTwinMapWidget::applyDeviceChannelStatuses, Qt::QueuedConnection);
-        connect(deviceStatusService_.get(), &DeviceStatusService::topViewFrameReceived, ui_->digitalTwinMapWidget,
-                &DigitalTwinMapWidget::applyTopViewFrame, Qt::QueuedConnection);
+        connect(deviceStatusService_.get(), &DeviceStatusService::riskFrameReceived, ui_->digitalTwinMapWidget,
+                &DigitalTwinMapWidget::applyRiskFrame, Qt::QueuedConnection);
         connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, ui_->digitalTwinMapWidget,
                 &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
     }
@@ -458,8 +458,8 @@ void MainWindow::updateVideoRiskBorders(const QVector<DigitalTwinRiskLevel>& ris
 
         tileFrame->setProperty("riskLevel", riskName);
         tileFrame->setRiskLevel(visibleRiskLevel);
-        const bool hovered = riskName == QStringLiteral("normal") && videoWidgets_[index] &&
-                             videoWidgets_[index]->underMouse();
+        const bool hovered =
+            riskName == QStringLiteral("normal") && videoWidgets_[index] && videoWidgets_[index]->underMouse();
         tileFrame->setProperty("hovered", hovered);
         tileFrame->style()->unpolish(tileFrame);
         tileFrame->style()->polish(tileFrame);

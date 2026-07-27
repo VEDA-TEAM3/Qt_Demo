@@ -14,6 +14,10 @@ namespace {
 constexpr qint64 blurHistoryMsec = 10000;
 constexpr qint64 blurMatchToleranceMsec = 1500;
 constexpr qsizetype maximumBlurHistorySize = 300;
+constexpr qint64 sourceRestartGapMsec = 5000;
+constexpr qint64 sourceTimestampRestartThresholdMsec = 2000;
+constexpr qint64 maximumClockOffsetAdjustmentMsec = 250;
+constexpr qint64 clockOffsetSmoothingDivisor = 4;
 constexpr double blurPaddingRatio = 0.18;
 constexpr int maximumBlurCornerRadius = 28;
 
@@ -73,6 +77,20 @@ int normalizedCeilPixel(double normalized, int extent) {
         ++pixel;
     }
     return qBound(0, pixel, extent);
+}
+
+/**
+ * @brief         이동 중인 객체의 두 블러 영역 사이를 지정 비율로 보간합니다.
+ * @param first   이전 메타데이터의 영역
+ * @param second  다음 메타데이터의 영역
+ * @param ratio   0.0부터 1.0 사이의 보간 비율
+ * @return        보간된 정규화 영역
+ */
+QRectF interpolatedRect(const QRectF& first, const QRectF& second, double ratio) {
+    const QPointF topLeft = first.topLeft() + (second.topLeft() - first.topLeft()) * ratio;
+    const QPointF bottomRight =
+        first.bottomRight() + (second.bottomRight() - first.bottomRight()) * ratio;
+    return QRectF(topLeft, bottomRight);
 }
 
 /**
@@ -203,12 +221,29 @@ void BlurProcessor::submitFrame(BlurFrameData frame) {
         return;
     }
 
-    channelIndex_.store(frame.channelIndex, std::memory_order_relaxed);
-    sourceToLocalOffsetMsec_.store(QDateTime::currentMSecsSinceEpoch() - frame.sourceTimestamp,
-                                   std::memory_order_relaxed);
-    clockOffsetReady_.store(true, std::memory_order_release);
-
+    const qint64 arrivalTimeMsec = QDateTime::currentMSecsSinceEpoch();
     QMutexLocker locker(&mutex_);
+    const bool arrivalRestart = lastMetadataArrivalMsec_ > 0 &&
+                                arrivalTimeMsec - lastMetadataArrivalMsec_ > sourceRestartGapMsec;
+    const bool timestampRestart = latestSourceTimestamp_ > frame.sourceTimestamp &&
+                                  latestSourceTimestamp_ - frame.sourceTimestamp >=
+                                      sourceTimestampRestartThresholdMsec;
+
+    if (arrivalRestart || timestampRestart) {
+        history_.clear();
+        latestSourceTimestamp_ = 0;
+        clockOffsetReady_.store(false, std::memory_order_release);
+    }
+
+    lastMetadataArrivalMsec_ = arrivalTimeMsec;
+    if (frame.sourceTimestamp <= latestSourceTimestamp_) {
+        return;
+    }
+
+    latestSourceTimestamp_ = frame.sourceTimestamp;
+    channelIndex_.store(frame.channelIndex, std::memory_order_relaxed);
+    updateClockOffset(arrivalTimeMsec - frame.sourceTimestamp);
+
     const auto position = std::lower_bound(
         history_.begin(), history_.end(), frame.sourceTimestamp,
         [](const BlurFrameData& stored, qint64 timestamp) { return stored.sourceTimestamp < timestamp; });
@@ -232,7 +267,28 @@ void BlurProcessor::submitFrame(BlurFrameData frame) {
 void BlurProcessor::clear() {
     QMutexLocker locker(&mutex_);
     history_.clear();
+    latestSourceTimestamp_ = 0;
+    lastMetadataArrivalMsec_ = 0;
     clockOffsetReady_.store(false, std::memory_order_release);
+}
+
+/**
+ * @brief                     네트워크 도착 지터를 완화하며 소스 시계와 로컬 시계의 오프셋을 갱신합니다.
+ * @param observedOffsetMsec  이번 메타데이터에서 관측한 시계 오프셋
+ */
+void BlurProcessor::updateClockOffset(qint64 observedOffsetMsec) {
+    if (!clockOffsetReady_.load(std::memory_order_acquire)) {
+        sourceToLocalOffsetMsec_.store(observedOffsetMsec, std::memory_order_relaxed);
+        clockOffsetReady_.store(true, std::memory_order_release);
+        return;
+    }
+
+    const qint64 currentOffset = sourceToLocalOffsetMsec_.load(std::memory_order_relaxed);
+    const qint64 difference = observedOffsetMsec - currentOffset;
+    const qint64 boundedDifference =
+        qBound(-maximumClockOffsetAdjustmentMsec, difference, maximumClockOffsetAdjustmentMsec);
+    sourceToLocalOffsetMsec_.store(currentOffset + boundedDifference / clockOffsetSmoothingDivisor,
+                                   std::memory_order_relaxed);
 }
 
 /**
@@ -287,9 +343,11 @@ QVector<QRectF> BlurProcessor::regionsFor(qint64 sourceTimestamp) const {
         history_.cbegin(), history_.cend(), sourceTimestamp,
         [](const BlurFrameData& frame, qint64 timestamp) { return frame.sourceTimestamp < timestamp; });
 
-    const BlurFrameData* nearest = after == history_.cend() ? nullptr : &*after;
+    const BlurFrameData* nextFrame = after == history_.cend() ? nullptr : &*after;
+    const BlurFrameData* previousFrame = after == history_.cbegin() ? nullptr : &*std::prev(after);
+    const BlurFrameData* nearest = nextFrame;
     if (after != history_.cbegin()) {
-        const BlurFrameData& before = *std::prev(after);
+        const BlurFrameData& before = *previousFrame;
         if (nearest == nullptr ||
             sourceTimestamp - before.sourceTimestamp <= nearest->sourceTimestamp - sourceTimestamp) {
             nearest = &before;
@@ -297,6 +355,18 @@ QVector<QRectF> BlurProcessor::regionsFor(qint64 sourceTimestamp) const {
     }
     if (nearest == nullptr || std::llabs(nearest->sourceTimestamp - sourceTimestamp) > blurMatchToleranceMsec) {
         return {};
+    }
+
+    double interpolationRatio = 0.0;
+    const bool canInterpolate =
+        previousFrame && nextFrame && nextFrame->sourceTimestamp > previousFrame->sourceTimestamp &&
+        std::llabs(sourceTimestamp - previousFrame->sourceTimestamp) <= blurMatchToleranceMsec &&
+        std::llabs(nextFrame->sourceTimestamp - sourceTimestamp) <= blurMatchToleranceMsec;
+    if (canInterpolate) {
+        interpolationRatio =
+            std::clamp(static_cast<double>(sourceTimestamp - previousFrame->sourceTimestamp) /
+                           static_cast<double>(nextFrame->sourceTimestamp - previousFrame->sourceTimestamp),
+                       0.0, 1.0);
     }
 
     QVector<QRectF> regions;
@@ -308,7 +378,25 @@ QVector<QRectF> BlurProcessor::regionsFor(qint64 sourceTimestamp) const {
         if (!enabled) {
             continue;
         }
-        regions.append(region.normalizedBox);
+
+        QRectF normalizedBox = region.normalizedBox;
+        if (canInterpolate) {
+            const auto previousRegion = std::find_if(
+                previousFrame->regions.cbegin(), previousFrame->regions.cend(),
+                [&region](const BlurRegionData& candidate) {
+                    return candidate.id == region.id && candidate.targetType == region.targetType;
+                });
+            const auto nextRegion = std::find_if(
+                nextFrame->regions.cbegin(), nextFrame->regions.cend(),
+                [&region](const BlurRegionData& candidate) {
+                    return candidate.id == region.id && candidate.targetType == region.targetType;
+                });
+            if (previousRegion != previousFrame->regions.cend() && nextRegion != nextFrame->regions.cend()) {
+                normalizedBox = interpolatedRect(previousRegion->normalizedBox, nextRegion->normalizedBox,
+                                                 interpolationRatio);
+            }
+        }
+        regions.append(normalizedBox);
     }
     return regions;
 }

@@ -135,6 +135,7 @@ TLS 인증서 검증은 비활성화하지 않습니다. MQTT 세부 Topic과 Pa
 | --- | --- |
 | `QTCCTV_DECODER_MODE` | GStreamer 디코더 선택 모드 |
 | `QTCCTV_BLUR_SYNC_OFFSET_MS` | 영상과 MQTT 블러 좌표의 동기화 보정값(ms) |
+| `QTCCTV_TOPVIEW_SYNC_OFFSET_MS` | TopView 소스 타임스탬프 보간 지연(ms, 기본값 100) |
 | `VEDA_MAP_MIN_X`, `VEDA_MAP_MIN_Y` | TopView 맵 좌표 최솟값 |
 | `VEDA_MAP_MAX_X`, `VEDA_MAP_MAX_Y` | TopView 맵 좌표 최댓값 |
 
@@ -144,7 +145,7 @@ TLS 인증서 검증은 비활성화하지 않습니다. MQTT 세부 Topic과 Pa
 
 | Topic | 용도 |
 | --- | --- |
-| `veda/hw/+/status` | 채널별 장비 피드백 |
+| `veda/hw/ch/+/status` | 채널별 장비 피드백 (`0..3` → UI `CH 01..04`) |
 | `veda/hw/status` | 중앙 장비 상태 |
 | `veda/ch/+/alive` | 채널 health/LWT |
 | `veda/ch/+/topview` | 직접 TopView 객체 좌표 |

@@ -21,10 +21,13 @@ public:
 
 private:
     QVector<QRectF> regionsFor(qint64 sourceTimestamp) const;
+    void updateClockOffset(qint64 observedOffsetMsec);
 
     qint64 syncOffsetMsec_ = 0;
     mutable QMutex mutex_;
     QVector<BlurFrameData> history_;
+    qint64 latestSourceTimestamp_ = 0;
+    qint64 lastMetadataArrivalMsec_ = 0;
     std::vector<guint8> scratch_;
     std::atomic_int channelIndex_{-1};
     std::atomic<qint64> sourceToLocalOffsetMsec_{0};

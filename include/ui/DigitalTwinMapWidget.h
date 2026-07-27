@@ -9,8 +9,8 @@
 #include <QVector>
 #include <memory>
 
-#include "model/DigitalTwinTypes.h"
 #include "model/DigitalTwinMapDisplaySettings.h"
+#include "model/DigitalTwinTypes.h"
 #include "model/MqttRealtimeData.h"
 #include "overlays/DeviceStatusMapOverlay.h"
 #include "overlays/OverlayManager.h"
@@ -18,7 +18,7 @@
 class DigitalTwinSimulationWorker;
 class DigitalTwinMapSceneBuilder;
 class DigitalTwinObjectStyleProvider;
-class TopViewObjectTracker;
+class RiskObjectTracker;
 class DangerAlertOverlay;
 class QGraphicsPathItem;
 class QGraphicsPixmapItem;
@@ -38,7 +38,7 @@ public:
     void applyDisplaySettings(const DigitalTwinMapDisplaySettings& settings);
 
 public slots:
-    void applyTopViewFrame(TopViewFrameData frame);
+    void applyRiskFrame(RiskFrameData frame);
     void applyCentralEvent(CentralEventData event);
     void applyDeviceChannelStatuses(QVector<DeviceChannelStatus> statuses);
     void setDeviceSignalAvailable(bool available);
@@ -89,13 +89,14 @@ private:
     std::shared_ptr<DigitalTwinMapSceneBuilder> sceneBuilder_;
     std::shared_ptr<DigitalTwinObjectStyleProvider> objectStyleProvider_;
     std::shared_ptr<DigitalTwinSimulationWorker> simulationWorker_;
-    std::unique_ptr<TopViewObjectTracker> topViewObjectTracker_;
+    std::unique_ptr<RiskObjectTracker> riskObjectTracker_;
     QVector<DemoVisualItem> demoItems_;
     QHash<QString, qsizetype> visualItemIndexes_;
     QHash<QString, qint64> latestCentralEventSourceTimes_;
     QHash<QString, CentralEventData> activeCentralEvents_;
     QTimer liveFrameExpiryTimer_;
     QTimer liveFrameRenderTimer_;
+    qint64 lastLiveSnapshotPublishMsec_ = 0;
     QRectF mapRect_;
     bool liveMode_ = false;
 };

@@ -23,7 +23,7 @@
 #include <utility>
 
 #include "model/DigitalTwinSimulationWorker.h"
-#include "model/TopViewObjectTracker.h"
+#include "model/RiskObjectTracker.h"
 #include "overlays/DangerAlertOverlay.h"
 #include "ui/DigitalTwinMapSceneBuilder.h"
 #include "ui/DigitalTwinObjectStyleProvider.h"
@@ -34,7 +34,8 @@ constexpr double maxTrailSceneLength = 240.0;
 constexpr double movingIconRotationOffsetDegrees = 90.0;
 constexpr int liveFrameExpiryMsec = 5000;
 constexpr int liveFrameExpiryPollMsec = 1000;
-constexpr int liveFrameRenderIntervalMsec = 0;
+constexpr int liveFrameRenderIntervalMsec = 33;
+constexpr int liveSnapshotPublishIntervalMsec = 100;
 constexpr int digitalTwinChannelCount = 4;
 
 QString centralEventKey(const CentralEventData& event) {
@@ -194,7 +195,7 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     : QGraphicsView(parent),
       sceneBuilder_(std::make_shared<DemoParkingMapSceneBuilder>()),
       objectStyleProvider_(std::make_shared<DefaultDigitalTwinObjectStyleProvider>()),
-      topViewObjectTracker_(std::make_unique<TopViewObjectTracker>(digitalTwinChannelCount)) {
+      riskObjectTracker_(std::make_unique<RiskObjectTracker>()) {
     qRegisterMetaType<DigitalTwinObject>("DigitalTwinObject");
     qRegisterMetaType<DigitalTwinRiskEvent>("DigitalTwinRiskEvent");
     qRegisterMetaType<DigitalTwinSnapshot>("DigitalTwinSnapshot");
@@ -204,8 +205,8 @@ DigitalTwinMapWidget::DigitalTwinMapWidget(QWidget* parent)
     liveFrameExpiryTimer_.setTimerType(Qt::CoarseTimer);
     connect(&liveFrameExpiryTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::expireStaleLiveFrames);
     liveFrameRenderTimer_.setInterval(liveFrameRenderIntervalMsec);
-    liveFrameRenderTimer_.setSingleShot(true);
-    liveFrameRenderTimer_.setTimerType(Qt::CoarseTimer);
+    liveFrameRenderTimer_.setSingleShot(false);
+    liveFrameRenderTimer_.setTimerType(Qt::PreciseTimer);
     connect(&liveFrameRenderTimer_, &QTimer::timeout, this, &DigitalTwinMapWidget::rebuildLiveSnapshot);
 
     setObjectName(QStringLiteral("digitalTwinMapWidget"));
@@ -292,21 +293,25 @@ void DigitalTwinMapWidget::applyDisplaySettings(const DigitalTwinMapDisplaySetti
     }
 }
 
-void DigitalTwinMapWidget::applyTopViewFrame(TopViewFrameData frame) {
-    if (frame.channelIndex < 0 || frame.channelIndex >= 4 || frame.sourceTimestamp <= 0) {
-        qWarning() << "[DigitalTwinMapWidget] Invalid TopView frame" << frame.channelIndex
-                   << frame.sourceTimestamp;
+/**
+ * @brief        MQTT 통합 RiskFrame을 실제 디지털 트윈 지도 입력으로 반영합니다.
+ * @param frame  계약 검증을 통과한 4채널 통합 위험 프레임
+ */
+void DigitalTwinMapWidget::applyRiskFrame(RiskFrameData frame) {
+    if (frame.sourceTimestamp <= 0) {
+        qWarning() << "[DigitalTwinMapWidget] Invalid RiskFrame" << frame.sourceTimestamp;
         return;
     }
 
     if (!liveMode_) {
         stopDemo();
         liveMode_ = true;
-        topViewObjectTracker_->reset();
+        riskObjectTracker_->reset();
+        lastLiveSnapshotPublishMsec_ = 0;
         liveFrameExpiryTimer_.start();
     }
 
-    if (!topViewObjectTracker_->submitFrame(std::move(frame), QDateTime::currentMSecsSinceEpoch())) {
+    if (!riskObjectTracker_->submitFrame(std::move(frame), QDateTime::currentMSecsSinceEpoch())) {
         return;
     }
 
@@ -356,13 +361,18 @@ void DigitalTwinMapWidget::setDeviceSignalAvailable(bool available) {
 }
 
 void DigitalTwinMapWidget::rebuildLiveSnapshot() {
-    QVector<DigitalTwinRiskLevel> channelRiskLevels(digitalTwinChannelCount, DigitalTwinRiskLevel::Normal);
-    for (int channelIndex = 0; channelIndex < digitalTwinChannelCount; ++channelIndex) {
-        channelRiskLevels[channelIndex] = riskLevelForSeverity(activeSeverityForChannel(channelIndex));
-    }
+    const qint64 currentTimeMsec = QDateTime::currentMSecsSinceEpoch();
+    const DigitalTwinSnapshot snapshot = riskObjectTracker_->buildSnapshot(currentTimeMsec);
+    applyObjectUpdates(snapshot.objects);
 
-    const DigitalTwinSnapshot snapshot = topViewObjectTracker_->buildSnapshot(channelRiskLevels);
-    applySimulationSnapshot(snapshot);
+    const bool shouldPublish = lastLiveSnapshotPublishMsec_ <= 0 ||
+                               currentTimeMsec - lastLiveSnapshotPublishMsec_ >= liveSnapshotPublishIntervalMsec ||
+                               !riskObjectTracker_->hasFrame();
+    if (shouldPublish) {
+        emit simulationSnapshotUpdated(snapshot);
+        emit channelRiskLevelsChanged(channelRiskLevels(snapshot));
+        lastLiveSnapshotPublishMsec_ = currentTimeMsec;
+    }
 
     if (dangerAlertOverlay_) {
         dangerAlertOverlay_->setActive(hasActiveCentralDanger() || hasActiveDanger(snapshot));
@@ -389,8 +399,14 @@ bool DigitalTwinMapWidget::hasActiveCentralDanger() const {
 }
 
 void DigitalTwinMapWidget::expireStaleLiveFrames() {
-    if (topViewObjectTracker_->expireStaleFrames(QDateTime::currentMSecsSinceEpoch(), liveFrameExpiryMsec)) {
+    const qint64 currentTimeMsec = QDateTime::currentMSecsSinceEpoch();
+    const bool riskExpired = riskObjectTracker_->expireStaleFrame(currentTimeMsec, liveFrameExpiryMsec);
+    if (riskExpired) {
         rebuildLiveSnapshot();
+    }
+
+    if (!riskObjectTracker_->hasFrame()) {
+        liveFrameRenderTimer_.stop();
     }
 }
 
@@ -492,12 +508,9 @@ QVector<DigitalTwinRiskLevel> DigitalTwinMapWidget::channelRiskLevels(const Digi
  * @param objects  최신 객체 상태 목록
  */
 void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& objects) {
-    bool createdNewItem = false;
-
     for (const auto& object : objects) {
         if (!visualItemIndexes_.contains(object.objectId)) {
             createVisualItem(object);
-            createdNewItem = true;
             continue;
         }
 
@@ -513,10 +526,6 @@ void DigitalTwinMapWidget::applyObjectUpdates(const QVector<DigitalTwinObject>& 
     }
 
     removeMissingVisualItems(objects);
-
-    if (createdNewItem) {
-        fitMapInView();
-    }
 }
 
 /**

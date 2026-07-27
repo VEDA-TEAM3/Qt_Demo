@@ -81,8 +81,8 @@ qt_add_executable(Qtcctvclient
     include/model/DeviceStatus.h
     include/model/DeviceStatusReport.h
     include/model/MqttRealtimeData.h
-    include/model/TopViewObjectTracker.h
-    src/model/TopViewObjectTracker.cpp
+    include/model/RiskObjectTracker.h
+    src/model/RiskObjectTracker.cpp
     include/model/DigitalTwinObjectSpawner.h
     src/model/RandomEdgeObjectSpawner.cpp
     include/model/DigitalTwinRiskPolicy.h
@@ -97,15 +97,33 @@ qt_add_executable(Qtcctvclient
     include/network/DeviceStatusGateway.h
     src/network/DeviceStatusGateway.cpp
     include/network/DeviceStatusGatewayFactory.h
+    include/network/MqttConnectionConfig.h
+    src/network/MqttConnectionConfig.cpp
+    include/network/MqttSubscription.h
+    include/network/MqttTransport.h
+    include/network/MqttTransportFactory.h
+    include/network/QtMqttTransport.h
+    src/network/QtMqttTransport.cpp
+    include/network/QtMqttTransportFactory.h
+    src/network/QtMqttTransportFactory.cpp
+    include/network/MqttTopicHandler.h
+    include/network/MqttMessageRouter.h
+    src/network/MqttMessageRouter.cpp
+    include/network/DeviceStatusTopicHandler.h
+    src/network/DeviceStatusTopicHandler.cpp
+    include/network/RiskTopicHandler.h
+    src/network/RiskTopicHandler.cpp
+    include/network/BlurTopicHandler.h
+    src/network/BlurTopicHandler.cpp
     include/network/MqttDeviceStatusGateway.h
     include/network/BlurMessageParser.h
     src/network/BlurMessageParser.cpp
     include/network/BlurFrameDispatcher.h
     src/network/BlurFrameDispatcher.cpp
-    include/network/TopViewFrameDispatcher.h
-    src/network/TopViewFrameDispatcher.cpp
-    include/network/TopViewMessageParser.h
-    src/network/TopViewMessageParser.cpp
+    include/network/RiskMessageParser.h
+    src/network/RiskMessageParser.cpp
+    include/network/RiskFrameDispatcher.h
+    src/network/RiskFrameDispatcher.cpp
     src/network/MqttDeviceStatusGateway.cpp
     include/network/MqttDeviceStatusGatewayFactory.h
     src/network/MqttDeviceStatusGatewayFactory.cpp

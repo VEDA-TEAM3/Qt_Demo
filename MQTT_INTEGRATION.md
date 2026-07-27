@@ -6,7 +6,7 @@ The Qt client consumes the wire formats used by the supplied broker, command cli
 
 | Message | Wire channel | Qt index |
 | --- | ---: | ---: |
-| `veda/hw/+/status` | `channelId` 1..4 | 0..3 |
+| `veda/hw/ch/+/status` | topic/payload channel 0..3 | 0..3 (UI CH 01..04) |
 | `veda/hw/status` | `channelId` 1..4 | 0..3 |
 | `veda/qt/event` | `channelId` 1..4 | 0..3 |
 | `veda/ch/{ch}/alive` | topic `ch` 0..3 | 0..3 |
@@ -17,7 +17,7 @@ The central broker server rejects `channelId <= 0`, so central status and event 
 
 ## Subscriptions
 
-- `veda/hw/+/status` (QoS 1)
+- `veda/hw/ch/+/status` (QoS 1)
 - `veda/hw/status` (QoS 1)
 - `veda/ch/+/alive` (QoS 1)
 - `veda/ch/+/topview` (QoS 0, direct `MqttTopViewSink` path)
@@ -34,7 +34,7 @@ The direct and relayed TopView topics can be enabled at the same time. Qt drops 
 3. The first valid live frame stops the built-in demo. The latest frames from all four channels are combined. Empty frames remove the channel's objects, and a channel is removed if no new frame arrives for five seconds.
 4. `mqtt_tls_broker_server.cpp` consumes `veda/metadata/event`, applies hardware state, and publishes `veda/hw/status` plus `veda/qt/event`.
 5. Qt applies the event to the correct channel card, event log, digital-twin risk color, and danger overlay. A failed hardware result is shown as failed feedback without accepting the unconfirmed state.
-6. Status produced after a command from `mqtt_tls_command_client.c` is also consumed through `veda/hw/+/status`. Legacy replies without `channelId`, `ts`, or `state` derive the channel from a node topic such as `rpi1`; a successful reply confirms the command but preserves the last fully confirmed output state.
+6. Status produced after a command from `mqtt_tls_command_client.c` is consumed through `veda/hw/ch/{0..3}/status`. When `channelId` is present, Qt validates it against the topic channel. The internal 0-based index is displayed as `CH 01..04`.
 
 ## Environment
 

@@ -7,18 +7,21 @@
 #include <QVector>
 
 #include "model/DeviceStatus.h"
+#include "model/DigitalTwinTypes.h"
 
-struct TopViewObjectData {
-    qint64 id = 0;
+struct RiskObjectData {
+    qint64 globalId = 0;
     QString objectClass;
     QPointF worldPosition;
-    bool edge = false;
+    DigitalTwinRiskLevel riskLevel = DigitalTwinRiskLevel::Normal;
+    qint64 nearestId = 0;
+    double distance = -1.0;
 };
 
-struct TopViewFrameData {
-    int channelIndex = -1;
+struct RiskFrameData {
     qint64 sourceTimestamp = 0;
-    QVector<TopViewObjectData> objects;
+    DigitalTwinRiskLevel riskLevel = DigitalTwinRiskLevel::Normal;
+    QVector<RiskObjectData> objects;
 };
 
 enum class BlurTargetType {
@@ -51,10 +54,9 @@ struct CentralEventData {
     DeviceOutputState hardwareState;
 };
 
-Q_DECLARE_METATYPE(TopViewObjectData)
-Q_DECLARE_METATYPE(TopViewFrameData)
+Q_DECLARE_METATYPE(RiskObjectData)
+Q_DECLARE_METATYPE(RiskFrameData)
 Q_DECLARE_METATYPE(BlurTargetType)
 Q_DECLARE_METATYPE(BlurRegionData)
 Q_DECLARE_METATYPE(BlurFrameData)
 Q_DECLARE_METATYPE(CentralEventData)
-Q_DECLARE_METATYPE(QVector<TopViewObjectData>)

@@ -25,12 +25,10 @@ DeviceStatusService::DeviceStatusService(std::shared_ptr<DeviceStatusGatewayFact
     qRegisterMetaType<DeviceStatusReport>("DeviceStatusReport");
     qRegisterMetaType<DeviceChannelStatus>("DeviceChannelStatus");
     qRegisterMetaType<QVector<DeviceChannelStatus>>("QVector<DeviceChannelStatus>");
-    qRegisterMetaType<TopViewObjectData>("TopViewObjectData");
-    qRegisterMetaType<TopViewFrameData>("TopViewFrameData");
+    qRegisterMetaType<RiskFrameData>("RiskFrameData");
     qRegisterMetaType<BlurRegionData>("BlurRegionData");
     qRegisterMetaType<BlurFrameData>("BlurFrameData");
     qRegisterMetaType<CentralEventData>("CentralEventData");
-    qRegisterMetaType<QVector<TopViewObjectData>>("QVector<TopViewObjectData>");
 
     uiFlushTimer_.setInterval(uiFlushIntervalMsec);
     uiFlushTimer_.setSingleShot(true);
@@ -117,8 +115,8 @@ void DeviceStatusService::setupGateway() {
     connect(gatewayThread_.get(), &QThread::started, gateway_.get(), &DeviceStatusGateway::start);
     connect(gateway_.get(), &DeviceStatusGateway::reportReceived, this, &DeviceStatusService::handleReport,
             Qt::QueuedConnection);
-    connect(gateway_.get(), &DeviceStatusGateway::topViewFrameReceived, this,
-            &DeviceStatusService::topViewFrameReceived, Qt::QueuedConnection);
+    connect(gateway_.get(), &DeviceStatusGateway::riskFrameReceived, this, &DeviceStatusService::riskFrameReceived,
+            Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::blurFrameReceived, this, &DeviceStatusService::blurFrameReceived,
             Qt::QueuedConnection);
     connect(gateway_.get(), &DeviceStatusGateway::centralEventReceived, this,

@@ -1,54 +1,43 @@
 #pragma once
 
 #include <array>
-
-#include <QString>
+#include <memory>
 
 #include "network/DeviceStatusGateway.h"
 
-class QByteArray;
 class BlurFrameDispatcher;
-class QMqttClient;
-class QTimer;
-class TopViewFrameDispatcher;
-
-struct MqttDeviceStatusConfig {
-    QString host;
-    quint16 port = 8883;
-    QString caCertificatePath;
-    QString clientId;
-    int keepAliveSeconds = 60;
-    bool debugLogging = true;
-
-    static MqttDeviceStatusConfig fromEnvironment();
-};
+class MqttMessageRouter;
+class MqttTransport;
+class MqttTransportFactory;
+class RiskFrameDispatcher;
+struct MqttMessageBatch;
 
 class MqttDeviceStatusGateway final : public DeviceStatusGateway {
     Q_OBJECT
 
 public:
-    explicit MqttDeviceStatusGateway(MqttDeviceStatusConfig config = MqttDeviceStatusConfig::fromEnvironment(),
-                                     QObject* parent = nullptr);
+    MqttDeviceStatusGateway(std::shared_ptr<MqttTransportFactory> transportFactory,
+                            std::shared_ptr<MqttMessageRouter> messageRouter, bool debugLogging,
+                            QObject* parent = nullptr);
+    ~MqttDeviceStatusGateway() override;
 
     void start() override;
     void stop() override;
 
 private:
-    void connectToBroker();
+    void handleConnectionChanged(bool connected);
     void subscribeToTopics();
-    void scheduleReconnect();
     void handleMessage(const QByteArray& payload, const QString& topic);
+    void dispatchMessages(MqttMessageBatch messages);
     void logReceivedMessage(const QByteArray& payload, const QString& topic) const;
     void logBlurFrame(const QString& topic, const BlurFrameData& frame);
-    void logTopViewFrame(const QString& topic, const TopViewFrameData& frame);
     void emitProtocolError(QString detail);
 
-    MqttDeviceStatusConfig config_;
-    QMqttClient* client_ = nullptr;
-    QTimer* reconnectTimer_ = nullptr;
+    std::shared_ptr<MqttTransportFactory> transportFactory_;
+    std::shared_ptr<MqttMessageRouter> messageRouter_;
+    std::unique_ptr<MqttTransport> transport_;
     BlurFrameDispatcher* blurDispatcher_ = nullptr;
-    TopViewFrameDispatcher* topViewDispatcher_ = nullptr;
+    RiskFrameDispatcher* riskDispatcher_ = nullptr;
     std::array<qint64, 4> lastBlurDebugLogMsec_{};
-    std::array<qint64, 4> lastTopViewDebugLogMsec_{};
-    bool stopping_ = false;
+    bool debugLogging_ = true;
 };

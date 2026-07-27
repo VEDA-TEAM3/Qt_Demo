@@ -29,7 +29,7 @@ public:
 
 signals:
     void channelStatusesReceived(QVector<DeviceChannelStatus> statuses);
-    void topViewFrameReceived(TopViewFrameData frame);
+    void riskFrameReceived(RiskFrameData frame);
     void blurFrameReceived(BlurFrameData frame);
     void centralEventReceived(CentralEventData event);
     void brokerConnectionChanged(bool connected);

@@ -1,12 +1,14 @@
 #include "network/BlurFrameDispatcher.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QTimer>
 #include <utility>
 
 namespace {
 constexpr int frameFlushIntervalMsec = 10;
 constexpr int sourceRestartGapMsec = 5000;
+constexpr qint64 sourceTimestampRestartThresholdMsec = 2000;
 }
 
 /**
@@ -49,8 +51,22 @@ void BlurFrameDispatcher::submitFrame(BlurFrameData frame) {
     const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
     const int channelIndex = frame.channelIndex;
     const qint64 lastArrivalMsec = lastArrivalTimes_.value(channelIndex, 0);
-    if (lastArrivalMsec > 0 && nowMsec - lastArrivalMsec > sourceRestartGapMsec) {
+    const qint64 latestSourceTimestamp = latestSourceTimes_.value(channelIndex, 0);
+    const bool arrivalRestart = lastArrivalMsec > 0 && nowMsec - lastArrivalMsec > sourceRestartGapMsec;
+    const bool timestampRestart = latestSourceTimestamp > frame.sourceTimestamp &&
+                                  latestSourceTimestamp - frame.sourceTimestamp >=
+                                      sourceTimestampRestartThresholdMsec;
+    if (arrivalRestart || timestampRestart) {
         latestSourceTimes_.remove(channelIndex);
+        pendingFrames_.remove(channelIndex);
+
+        if (timestampRestart) {
+            qWarning().noquote()
+                << QStringLiteral("[MQTT BLUR] Channel %1 source timestamp restarted: %2 -> %3")
+                       .arg(channelIndex)
+                       .arg(latestSourceTimestamp)
+                       .arg(frame.sourceTimestamp);
+        }
     }
     lastArrivalTimes_.insert(channelIndex, nowMsec);
 
