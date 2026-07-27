@@ -66,11 +66,11 @@ protected:
 
         const QRectF ring = rect().adjusted(6, 6, -6, -6);
 
-        QPen basePen(QColor(48, 65, 86), 4, Qt::SolidLine, Qt::RoundCap);
+        QPen basePen(QColor(47, 78, 92), 4, Qt::SolidLine, Qt::RoundCap);
         painter.setPen(basePen);
         painter.drawArc(ring, 0, 360 * 16);
 
-        QPen accentPen(QColor(46, 130, 255), 4, Qt::SolidLine, Qt::RoundCap);
+        QPen accentPen(QColor(90, 194, 227), 4, Qt::SolidLine, Qt::RoundCap);
         painter.setPen(accentPen);
         painter.drawArc(ring, angle_ * 16, 115 * 16);
     }
@@ -105,7 +105,7 @@ ClickableVideoWidget::ClickableVideoWidget(QWidget* parent) : QWidget(parent) {
     spinner->setObjectName("videoLoadingSpinner");
     loadingSpinner_ = spinner;
 
-    loadingLabel_ = std::make_shared<QLabel>("Loading stream", loadingOverlay_.get());
+    loadingLabel_ = std::make_shared<QLabel>(QStringLiteral("영상 연결 중"), loadingOverlay_.get());
     loadingLabel_->setObjectName("videoLoadingLabel");
     loadingLabel_->setAlignment(Qt::AlignCenter);
 

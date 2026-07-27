@@ -28,26 +28,26 @@ QScrollBar:vertical {
     background: transparent;
     border: none;
     width: 8px;
-    margin: 36px 2px 4px 2px;
+    margin: 36px 1px 4px 1px;
 }
 QScrollBar::handle:vertical {
-    background: #426986;
-    border: none;
+    background: #356e91;
+    border: 1px solid #519abe;
     border-radius: 4px;
     min-height: 30px;
 }
 QScrollBar::handle:vertical:hover {
-    background: #5b88aa;
+    background: #49add7;
 }
 QScrollBar::add-line:vertical {
-    background: #07111b;
+    background: transparent;
     border: none;
     height: 0;
     subcontrol-position: bottom;
     subcontrol-origin: margin;
 }
 QScrollBar::sub-line:vertical {
-    background: #07111b;
+    background: transparent;
     border: none;
     height: 0;
     subcontrol-position: top;
@@ -62,7 +62,7 @@ QScrollBar::down-arrow:vertical {
 }
 QScrollBar::add-page:vertical,
 QScrollBar::sub-page:vertical {
-    background: #07111b;
+    background: transparent;
     border: none;
 }
 )";
