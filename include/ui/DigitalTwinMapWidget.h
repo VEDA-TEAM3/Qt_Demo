@@ -44,6 +44,7 @@ public slots:
     void setDeviceSignalAvailable(bool available);
 
 signals:
+    void liveRiskStreamActivated();
     void simulationSnapshotUpdated(DigitalTwinSnapshot snapshot);
     void channelRiskLevelsChanged(QVector<DigitalTwinRiskLevel> riskLevels);
 

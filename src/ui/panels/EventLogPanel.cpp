@@ -104,6 +104,16 @@ void EventLogPanel::prependEntries(QVector<EventLogEntry> entries) {
     scrollBar->setValue(std::min(previousValue + insertedHeight, scrollBar->maximum()));
 }
 
+/** @brief 이벤트 로그와 스크롤 위치를 초기 상태로 되돌립니다. */
+void EventLogPanel::clear() {
+    if (!model_ || !table_) {
+        return;
+    }
+
+    model_->clear();
+    table_->verticalScrollBar()->setValue(table_->verticalScrollBar()->minimum());
+}
+
 /**
  * @brief       패널 크기가 바뀌면 현재 폭에 맞춰 열 너비를 다시 계산합니다.
  * @param event  Qt resize 이벤트

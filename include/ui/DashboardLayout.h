@@ -63,9 +63,6 @@ inline void apply(QMainWindow* window, UiMainWindow* ui) {
     ui->topBarFrame->setFixedHeight(62);
     ui->legendFrame->setFixedHeight(46);
 
-    ui->cameraSelectLabel->setFixedWidth(132);
-    ui->cameraSelectLabel->setAlignment(Qt::AlignCenter);
-
     ui->topSectionFrame->setMinimumHeight(0);
     ui->topSectionFrame->setMaximumHeight(QWIDGETSIZE_MAX);
     ui->topSectionFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);

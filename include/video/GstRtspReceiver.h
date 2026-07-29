@@ -10,6 +10,7 @@
 
 #include "video/BlurProcessor.h"
 #include "video/StreamReceiver.h"
+#include "video/VideoRuntimeConfig.h"
 
 class QThread;
 class QTimer;
@@ -18,7 +19,7 @@ class GstRtspReceiver : public StreamReceiver {
     Q_OBJECT
 
 public:
-    explicit GstRtspReceiver(guintptr outputWindowHandle, QObject* parent = nullptr);
+    explicit GstRtspReceiver(guintptr outputWindowHandle, GstRtspReceiverConfig config, QObject* parent = nullptr);
     ~GstRtspReceiver() override;
 
     void setUrl(const QString& url) override;
@@ -57,6 +58,7 @@ private:
 
 private:
     guintptr outputWindowHandle_ = 0;
+    GstRtspReceiverConfig config_;
     QString url_;
 
     GstElement* pipeline_ = nullptr;

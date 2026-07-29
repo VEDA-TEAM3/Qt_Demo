@@ -231,3 +231,14 @@ void EventLogTableModel::prependEntries(QVector<EventLogEntry> entries) {
     entries_.erase(entries_.begin() + maximumEventLogRows, entries_.end());
     endRemoveRows();
 }
+
+/** @brief 현재 표시 중인 모든 이벤트 로그를 모델에서 제거합니다. */
+void EventLogTableModel::clear() {
+    if (entries_.isEmpty()) {
+        return;
+    }
+
+    beginResetModel();
+    entries_.clear();
+    endResetModel();
+}

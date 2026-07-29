@@ -7,6 +7,6 @@
 
 class BlurMessageParser final {
 public:
-    static bool matchesTopic(const QString& topic);
-    static bool parse(const QByteArray& payload, const QString& topic, BlurFrameData& frame, QString& error);
+    static bool parse(const QByteArray& payload, const QString& topic, int topicWireChannel, BlurFrameData& frame,
+                      QString& error);
 };

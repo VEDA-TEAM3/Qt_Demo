@@ -26,6 +26,7 @@ public:
 public slots:
     void consumeDigitalTwinSnapshot(DigitalTwinSnapshot snapshot);
     void consumeCentralEvent(CentralEventData event);
+    void resetEventLogForLiveInput();
 
 private:
     void flushObjectList();

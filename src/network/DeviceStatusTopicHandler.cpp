@@ -3,16 +3,13 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
 #include <utility>
+
+#include "network/MqttTopicFilter.h"
 
 namespace {
 constexpr int deviceChannelCount = 4;
 constexpr int protocolVersion = 1;
-constexpr auto controllerStatusTopic = "veda/hw/ch/+/status";
-constexpr auto centralStatusTopic = "veda/hw/status";
-constexpr auto sensorAliveTopic = "veda/ch/+/alive";
-constexpr auto centralEventTopic = "veda/qt/event";
 
 enum class StatusProtocol {
     Controller,
@@ -57,6 +54,20 @@ bool parseOutputState(const QJsonObject& object, DeviceOutputState& outputs, QSt
     return true;
 }
 
+bool parseChannelOutputState(const QJsonObject& object, DeviceOutputState& outputs, QString& error) {
+    if (!readBoolean(object, QStringLiteral("ledRed"), outputs.ledRed) ||
+        !readBoolean(object, QStringLiteral("ledYellow"), outputs.ledYellow) ||
+        !readBoolean(object, QStringLiteral("ledGreen"), outputs.ledGreen) ||
+        !readBoolean(object, QStringLiteral("sirenOn"), outputs.beacon) ||
+        !readBoolean(object, QStringLiteral("buzzerOn"), outputs.buzzer)) {
+        error = QStringLiteral(
+            "status must contain boolean ledRed, ledYellow, ledGreen, sirenOn and buzzerOn fields");
+        return false;
+    }
+
+    return true;
+}
+
 int channelIndexForCentralStatus(qint64 channelId) {
     return channelId >= 1 && channelId <= deviceChannelCount ? static_cast<int>(channelId - 1) : -1;
 }
@@ -65,14 +76,52 @@ int channelIndexForControllerStatus(qint64 channelId) {
     return channelId >= 0 && channelId < deviceChannelCount ? static_cast<int>(channelId) : -1;
 }
 
-int channelIndexFromControllerTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/hw/ch/([0-3])/status$"),
-                                                 QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch match = topicPattern.match(topic);
-    return match.hasMatch() ? match.captured(1).toInt() : -1;
+bool parseChannelStatusPayload(const QByteArray& payload, const QString& topic, int topicChannelIndex,
+                               DeviceStatusReport& report, QString& error) {
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        error = QStringLiteral("Invalid channel status JSON on %1: %2").arg(topic, parseError.errorString());
+        return false;
+    }
+
+    const QJsonObject object = document.object();
+    qint64 version = 0;
+    qint64 channelId = 0;
+    qint64 sourceTimestamp = 0;
+    if (!readInteger(object, QStringLiteral("v"), version) || version != protocolVersion ||
+        !readInteger(object, QStringLiteral("ch"), channelId) ||
+        !readInteger(object, QStringLiteral("ts"), sourceTimestamp) || sourceTimestamp <= 0) {
+        error = QStringLiteral("Invalid required channel status fields on %1").arg(topic);
+        return false;
+    }
+
+    report.channelIndex = channelIndexForControllerStatus(channelId);
+    if (report.channelIndex < 0 || report.channelIndex != topicChannelIndex) {
+        error = QStringLiteral("Topic/payload channel mismatch on %1").arg(topic);
+        return false;
+    }
+
+    if (!readBoolean(object, QStringLiteral("cameraAlive"), report.cameraAlive) ||
+        !readBoolean(object, QStringLiteral("hardwareAlive"), report.hardwareAlive)) {
+        error = QStringLiteral("status must contain boolean cameraAlive and hardwareAlive fields on %1").arg(topic);
+        return false;
+    }
+
+    if (!parseChannelOutputState(object, report.outputs, error)) {
+        error = QStringLiteral("%1 on %2").arg(error, topic);
+        return false;
+    }
+
+    report.type = DeviceStatusReportType::ChannelStatusSnapshot;
+    report.sourceTimestamp = sourceTimestamp;
+    report.node = QStringLiteral("control-server");
+    report.detail.clear();
+    report.hasOutputState = report.hardwareAlive;
+    return true;
 }
 
-bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusProtocol protocol,
+bool parseStatusPayload(const QByteArray& payload, const QString& topic, int topicChannelIndex, StatusProtocol protocol,
                         DeviceStatusReport& report, QString& error) {
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
@@ -110,7 +159,6 @@ bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusP
         }
     }
 
-    const int topicChannelIndex = protocol == StatusProtocol::Controller ? channelIndexFromControllerTopic(topic) : -1;
     if (object.contains(QStringLiteral("channelId"))) {
         qint64 channelId = 0;
         if (!readInteger(object, QStringLiteral("channelId"), channelId)) {
@@ -188,10 +236,9 @@ bool parseStatusPayload(const QByteArray& payload, const QString& topic, StatusP
     return true;
 }
 
-bool parseAlivePayload(const QByteArray& payload, const QString& topic, DeviceStatusReport& report, QString& error) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/ch/([0-3])/alive$"));
-    const QRegularExpressionMatch match = topicPattern.match(topic);
-    if (!match.hasMatch()) {
+bool parseAlivePayload(const QByteArray& payload, const QString& topic, int topicChannelIndex,
+                       DeviceStatusReport& report, QString& error) {
+    if (topicChannelIndex < 0 || topicChannelIndex >= deviceChannelCount) {
         error = QStringLiteral("Invalid sensor alive topic: %1").arg(topic);
         return false;
     }
@@ -202,7 +249,7 @@ bool parseAlivePayload(const QByteArray& payload, const QString& topic, DeviceSt
         return false;
     }
 
-    report.channelIndex = match.captured(1).toInt();
+    report.channelIndex = topicChannelIndex;
     report.sourceTimestamp = QDateTime::currentMSecsSinceEpoch();
     report.node = QStringLiteral("compute-server");
     report.type = state == "1" ? DeviceStatusReportType::SensorOnline : DeviceStatusReportType::SensorOffline;
@@ -263,26 +310,26 @@ bool parseCentralEventPayload(const QByteArray& payload, const QString& topic, C
 }
 }  // namespace
 
+/** @brief JSON에서 검증한 MQTT 구독 설정으로 상태 핸들러를 생성합니다. */
+DeviceStatusTopicHandler::DeviceStatusTopicHandler(MqttTopicsConfig config) : config_(std::move(config)) {}
+
 /** @brief 장비 상태, 센서 생존 및 중앙 이벤트 구독 목록을 반환합니다. */
 QVector<MqttSubscription> DeviceStatusTopicHandler::subscriptions() const {
-    return {{QString::fromLatin1(controllerStatusTopic), 1},
-            {QString::fromLatin1(centralStatusTopic), 1},
-            {QString::fromLatin1(sensorAliveTopic), 1},
-            {QString::fromLatin1(centralEventTopic), 1}};
+    return {config_.controllerStatus, config_.centralStatus, config_.sensorAlive, config_.centralEvent};
 }
 
 /** @brief 수신 토픽이 장비 상태 계열 계약에 속하는지 확인합니다. */
 bool DeviceStatusTopicHandler::matchesTopic(const QString& topic) const {
-    static const QRegularExpression controllerPattern(QStringLiteral("^veda/hw/ch/[0-3]/status$"));
-    static const QRegularExpression alivePattern(QStringLiteral("^veda/ch/[0-3]/alive$"));
-    return topic == QString::fromLatin1(centralStatusTopic) || topic == QString::fromLatin1(centralEventTopic) ||
-           controllerPattern.match(topic).hasMatch() || alivePattern.match(topic).hasMatch();
+    return MqttTopicFilter::matches(config_.controllerStatus.topicFilter, topic) ||
+           MqttTopicFilter::matches(config_.centralStatus.topicFilter, topic) ||
+           MqttTopicFilter::matches(config_.sensorAlive.topicFilter, topic) ||
+           MqttTopicFilter::matches(config_.centralEvent.topicFilter, topic);
 }
 
 /** @brief 상태 계열 payload를 UI 독립 도메인 보고와 중앙 이벤트로 변환합니다. */
 bool DeviceStatusTopicHandler::handle(const QByteArray& payload, const QString& topic, MqttMessageBatch& messages,
                                       QString& error) const {
-    if (topic == QString::fromLatin1(centralEventTopic)) {
+    if (MqttTopicFilter::matches(config_.centralEvent.topicFilter, topic)) {
         CentralEventData event;
         if (!parseCentralEventPayload(payload, topic, event, error)) {
             return false;
@@ -304,12 +351,15 @@ bool DeviceStatusTopicHandler::handle(const QByteArray& payload, const QString& 
 
     DeviceStatusReport report;
     bool parsed = false;
-    if (topic == QString::fromLatin1(centralStatusTopic)) {
-        parsed = parseStatusPayload(payload, topic, StatusProtocol::Central, report, error);
-    } else if (topic.startsWith(QStringLiteral("veda/hw/")) && topic.endsWith(QStringLiteral("/status"))) {
-        parsed = parseStatusPayload(payload, topic, StatusProtocol::Controller, report, error);
-    } else if (topic.startsWith(QStringLiteral("veda/ch/")) && topic.endsWith(QStringLiteral("/alive"))) {
-        parsed = parseAlivePayload(payload, topic, report, error);
+    if (MqttTopicFilter::matches(config_.centralStatus.topicFilter, topic)) {
+        parsed = parseStatusPayload(payload, topic, -1, StatusProtocol::Central, report, error);
+    } else if (MqttTopicFilter::matches(config_.controllerStatus.topicFilter, topic)) {
+        const int channelIndex =
+            MqttTopicFilter::integerWildcardValue(config_.controllerStatus.topicFilter, topic, 0, 3);
+        parsed = parseChannelStatusPayload(payload, topic, channelIndex, report, error);
+    } else if (MqttTopicFilter::matches(config_.sensorAlive.topicFilter, topic)) {
+        const int channelIndex = MqttTopicFilter::integerWildcardValue(config_.sensorAlive.topicFilter, topic, 0, 3);
+        parsed = parseAlivePayload(payload, topic, channelIndex, report, error);
     }
 
     if (!parsed) {

@@ -17,6 +17,7 @@ public:
 
     void prependEntry(const EventLogEntry& entry);
     void prependEntries(QVector<EventLogEntry> entries);
+    void clear();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

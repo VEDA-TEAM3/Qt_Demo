@@ -4,11 +4,10 @@
 
 struct MqttConnectionConfig {
     QString host;
-    quint16 port = 8883;
+    quint16 port = 0;
     QString caCertificatePath;
     QString clientId;
-    int keepAliveSeconds = 60;
-    bool debugLogging = true;
-
-    static MqttConnectionConfig fromEnvironment();
+    int keepAliveSeconds = 0;
+    int reconnectIntervalMsec = 0;
+    bool debugLogging = false;
 };

@@ -6,6 +6,7 @@
 #include "model/DeviceStatus.h"
 
 enum class DeviceStatusReportType {
+    ChannelStatusSnapshot,
     ControllerOnline,
     SensorOnline,
     SensorOffline,
@@ -21,6 +22,8 @@ struct DeviceStatusReport {
     qint64 sourceTimestamp = 0;
     QString node;
     QString detail;
+    bool cameraAlive = false;
+    bool hardwareAlive = false;
     bool hasOutputState = false;
     DeviceOutputState outputs;
 };

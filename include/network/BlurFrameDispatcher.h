@@ -2,16 +2,20 @@
 
 #include <QMap>
 #include <QObject>
+#include <memory>
 
 #include "model/MqttRealtimeData.h"
+#include "network/MqttRuntimeConfig.h"
 
 class QTimer;
+class BlurFrameBuffer;
 
 class BlurFrameDispatcher final : public QObject {
     Q_OBJECT
 
 public:
-    explicit BlurFrameDispatcher(QObject* parent = nullptr);
+    explicit BlurFrameDispatcher(MqttDispatcherConfig config, std::shared_ptr<BlurFrameBuffer> frameBuffer,
+                                 QObject* parent = nullptr);
 
     void start();
     void stop();
@@ -23,9 +27,12 @@ signals:
 private:
     void flushPendingFrames();
 
-    QMap<int, BlurFrameData> pendingFrames_;
+    std::shared_ptr<BlurFrameBuffer> frameBuffer_;
     QMap<int, qint64> latestSourceTimes_;
     QMap<int, qint64> lastArrivalTimes_;
     QTimer* flushTimer_ = nullptr;
+    MqttDispatcherConfig config_;
+    qint64 lastStatisticsLogMsec_ = 0;
+    quint64 deliveredFrameCount_ = 0;
     bool running_ = false;
 };

@@ -9,29 +9,30 @@
 #include <vector>
 
 #include "model/MqttRealtimeData.h"
+#include "video/VideoRuntimeConfig.h"
+#include "video/VideoUtcClockMapper.h"
 
 class BlurProcessor final {
 public:
-    explicit BlurProcessor(qint64 defaultSyncOffsetMsec);
+    explicit BlurProcessor(BlurProcessorConfig config);
 
     void setTargetsEnabled(bool faceEnabled, bool licensePlateEnabled);
     void submitFrame(BlurFrameData frame);
+    void observeVideoBuffer(const GstBuffer* buffer);
     void clear();
     void apply(GstVideoFrame& frame);
 
 private:
     QVector<QRectF> regionsFor(qint64 sourceTimestamp) const;
-    void updateClockOffset(qint64 observedOffsetMsec);
 
-    qint64 syncOffsetMsec_ = 0;
+    BlurProcessorConfig config_;
+    VideoUtcClockMapper utcClockMapper_;
     mutable QMutex mutex_;
     QVector<BlurFrameData> history_;
     qint64 latestSourceTimestamp_ = 0;
     qint64 lastMetadataArrivalMsec_ = 0;
     std::vector<guint8> scratch_;
     std::atomic_int channelIndex_{-1};
-    std::atomic<qint64> sourceToLocalOffsetMsec_{0};
-    std::atomic_bool clockOffsetReady_{false};
     std::atomic_bool faceEnabled_{true};
     std::atomic_bool licensePlateEnabled_{true};
     std::atomic<qint64> lastApplyLogMsec_{0};

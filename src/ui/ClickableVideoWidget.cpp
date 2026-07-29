@@ -9,6 +9,7 @@
 #include <QPainter>
 #include <QPen>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QTimer>
@@ -112,8 +113,50 @@ ClickableVideoWidget::ClickableVideoWidget(QWidget* parent) : QWidget(parent) {
     loadingLayout_->addWidget(spinner.get(), 0, Qt::AlignCenter);
     loadingLayout_->addWidget(loadingLabel_.get(), 0, Qt::AlignCenter);
 
+    channelLabel_ = std::make_shared<QLabel>(this);
+    channelLabel_->setObjectName("videoChannelLabel");
+    channelLabel_->setAttribute(Qt::WA_DontCreateNativeAncestors);
+    channelLabel_->setAttribute(Qt::WA_NativeWindow);
+    channelLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    channelLabel_->setAlignment(Qt::AlignCenter);
+    channelLabel_->setFocusPolicy(Qt::NoFocus);
+    channelLabel_->setTextInteractionFlags(Qt::NoTextInteraction);
+    channelLabel_->setCursor(Qt::ArrowCursor);
+    channelLabel_->setProperty("expanded", false);
+    channelLabel_->hide();
+
     spinner->setSpinning(true);
 
+    updateOverlayGeometry();
+}
+
+/**
+ * @brief             영상 좌측 상단에 표시할 채널 이름을 설정합니다.
+ * @param channelName 표시할 채널 이름
+ */
+void ClickableVideoWidget::setChannelName(const QString& channelName) {
+    if (!channelLabel_) {
+        return;
+    }
+
+    channelLabel_->setText(channelName);
+    channelLabel_->setVisible(!channelName.isEmpty());
+    updateOverlayGeometry();
+}
+
+/**
+ * @brief         영상 확대 여부에 맞춰 채널 라벨 크기를 변경합니다.
+ * @param expanded 확대 화면이면 true
+ */
+void ClickableVideoWidget::setExpandedView(bool expanded) {
+    if (!channelLabel_ || expandedView_ == expanded) {
+        return;
+    }
+
+    expandedView_ = expanded;
+    channelLabel_->setProperty("expanded", expandedView_);
+    channelLabel_->style()->unpolish(channelLabel_.get());
+    channelLabel_->style()->polish(channelLabel_.get());
     updateOverlayGeometry();
 }
 
@@ -129,6 +172,8 @@ void ClickableVideoWidget::setLoading(bool loading) {
         loadingOverlay_->raise();
     }
 
+    refreshChannelLabel();
+
     if (loadingSpinner_) {
         static_cast<SpinnerWidget*>(loadingSpinner_.get())->setSpinning(loading);
     }
@@ -136,6 +181,24 @@ void ClickableVideoWidget::setLoading(bool loading) {
     style()->unpolish(this);
     style()->polish(this);
     update();
+}
+
+/** @brief 영상 표면 재생성 뒤에도 채널 라벨을 네이티브 윈도우 최상단으로 복구합니다. */
+void ClickableVideoWidget::refreshChannelLabel() {
+    if (!channelLabel_ || channelLabel_->text().isEmpty()) {
+        return;
+    }
+
+    channelLabel_->show();
+    channelLabel_->raise();
+
+#ifdef Q_OS_WIN
+    const HWND labelWindow = reinterpret_cast<HWND>(channelLabel_->winId());
+    if (labelWindow) {
+        SetWindowPos(labelWindow, HWND_TOP, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+#endif
 }
 
 /**
@@ -172,6 +235,12 @@ void ClickableVideoWidget::mouseDoubleClickEvent(QMouseEvent* event) {
 void ClickableVideoWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     updateOverlayGeometry();
+}
+
+/** @brief 위젯이 다시 표시될 때 채널 라벨의 네이티브 Z 순서를 복구합니다. */
+void ClickableVideoWidget::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    QTimer::singleShot(0, this, &ClickableVideoWidget::refreshChannelLabel);
 }
 
 #ifdef Q_OS_WIN
@@ -243,5 +312,13 @@ void ClickableVideoWidget::updateOverlayGeometry() {
     if (loadingOverlay_) {
         loadingOverlay_->setGeometry(rect());
         loadingOverlay_->raise();
+    }
+
+    if (channelLabel_ && channelLabel_->isVisible()) {
+        channelLabel_->adjustSize();
+        const int margin = expandedView_ ? 16 : 10;
+        channelLabel_->clearMask();
+        channelLabel_->move(margin, margin);
+        refreshChannelLabel();
     }
 }

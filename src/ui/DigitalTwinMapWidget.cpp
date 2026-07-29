@@ -304,11 +304,13 @@ void DigitalTwinMapWidget::applyRiskFrame(RiskFrameData frame) {
     }
 
     if (!liveMode_) {
+        qInfo() << "[DigitalTwinMapWidget] Live risk stream activated";
         stopDemo();
         liveMode_ = true;
         riskObjectTracker_->reset();
         lastLiveSnapshotPublishMsec_ = 0;
         liveFrameExpiryTimer_.start();
+        emit liveRiskStreamActivated();
     }
 
     if (!riskObjectTracker_->submitFrame(std::move(frame), QDateTime::currentMSecsSinceEpoch())) {
@@ -364,6 +366,11 @@ void DigitalTwinMapWidget::rebuildLiveSnapshot() {
     const qint64 currentTimeMsec = QDateTime::currentMSecsSinceEpoch();
     const DigitalTwinSnapshot snapshot = riskObjectTracker_->buildSnapshot(currentTimeMsec);
     applyObjectUpdates(snapshot.objects);
+
+    const QVector<DigitalTwinRiskEvent> riskEvents = riskObjectTracker_->takeRiskEvents();
+    for (const DigitalTwinRiskEvent& riskEvent : riskEvents) {
+        showRiskPulse(riskEvent);
+    }
 
     const bool shouldPublish = lastLiveSnapshotPublishMsec_ <= 0 ||
                                currentTimeMsec - lastLiveSnapshotPublishMsec_ >= liveSnapshotPublishIntervalMsec ||

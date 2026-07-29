@@ -12,6 +12,7 @@
 #include "model/StreamConfig.h"
 
 class QThread;
+class BlurFrameBuffer;
 class StreamReceiver;
 class StreamReceiverFactory;
 
@@ -44,7 +45,8 @@ public:
      * @param receiverFactory  채널별 StreamReceiver 생성 factory
      * @param parent           Qt 객체 소유권을 연결할 부모 객체
      */
-    explicit StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory, QObject* parent = nullptr);
+    explicit StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory, int receiverStartSpacingMsec,
+                                  QObject* parent = nullptr);
 
     /**
      * @brief 실행 중인 모든 수신기와 worker thread를 정리합니다.
@@ -108,6 +110,7 @@ private:
         StreamConfig config;
         std::shared_ptr<QThread> thread;
         std::shared_ptr<StreamReceiver> receiver;
+        std::shared_ptr<BlurFrameBuffer> blurFrameBuffer;
     };
 
     void createWorkers();
@@ -116,6 +119,7 @@ private:
     void stopWorkers();
 
     std::shared_ptr<StreamReceiverFactory> receiverFactory_;
+    int receiverStartSpacingMsec_ = 0;
     bool faceBlurEnabled_ = true;
     bool licensePlateBlurEnabled_ = true;
 

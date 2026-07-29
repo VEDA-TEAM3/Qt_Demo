@@ -123,8 +123,9 @@ QLabel#separateLabel_1, QLabel#separateLabel_2, QLabel#separateLabel_3 {
 QLabel#settingsLabel {
     color: #d0eaf4;
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                      stop:0 #173849, stop:1 #0d2230);
-    border: 1px solid #3e7891;
+                                      stop:0 #163c59, stop:0.55 #102f49, stop:1 #0b263e);
+    border: 1px solid #4d8aac;
+    border-top-color: #63c8ec;
     border-radius: 5px;
     padding: 0;
     font-weight: 800;
@@ -132,25 +133,28 @@ QLabel#settingsLabel {
 
 QLabel#settingsLabel:hover {
     color: #ffffff;
-    background-color: #17465a;
-    border-color: #65c9e8;
+    background-color: #1a4d6c;
+    border-color: #78daf8;
 }
 
 QWidget#mapSettingsDialog {
-    background-color: rgba(0, 5, 10, 220);
+    background-color: rgba(1, 7, 16, 224);
 }
 
 QFrame#mapSettingsDialogPanel {
     background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                      stop:0 #111f28, stop:0.52 #132731, stop:1 #0b161d);
-    border: 1px solid #4c8398;
-    border-radius: 12px;
+                                      stop:0 #12314a, stop:0.52 #0d2941, stop:1 #081829);
+    border: 1px solid #4c94b7;
+    border-top-color: #60c5eb;
+    border-radius: 8px;
 }
 
 QLabel#mapSettingsTitleLabel {
-    color: #eef3f5;
+    color: #f2f9fc;
     font-size: 24px;
     font-weight: 900;
+    border-left: 3px solid #57cfff;
+    padding-left: 10px;
 }
 
 QPushButton#mapSettingsCloseButton {
@@ -158,33 +162,33 @@ QPushButton#mapSettingsCloseButton {
     max-width: 46px;
     min-height: 44px;
     max-height: 44px;
-    background-color: #152630;
-    border: 1px solid #3f6474;
-    border-radius: 8px;
+    background-color: #0d2c45;
+    border: 1px solid #3f7fa5;
+    border-radius: 5px;
     color: #f4f8ff;
     font-size: 24px;
     font-weight: 600;
 }
 
 QPushButton#mapSettingsCloseButton:hover {
-    background-color: #21404d;
-    border-color: #72b9d0;
+    background-color: #174667;
+    border-color: #63c5ec;
 }
 
 QFrame#mapSettingsOptionsFrame {
-    background-color: rgba(9, 20, 27, 238);
-    border: 1px solid #344e5b;
-    border-radius: 9px;
+    background-color: rgba(6, 20, 33, 242);
+    border: 1px solid #315f7e;
+    border-radius: 6px;
 }
 
 QLabel#mapSettingsSectionLabel {
-    color: #6dbbd5;
+    color: #57cfff;
     font-size: 18px;
     font-weight: 800;
 }
 
 QCheckBox#mapSettingsOption {
-    color: #dcebf3;
+    color: #dceaf2;
     background-color: transparent;
     border: 0;
     spacing: 12px;
@@ -196,67 +200,67 @@ QCheckBox#mapSettingsOption {
 QCheckBox#mapSettingsOption::indicator {
     width: 24px;
     height: 24px;
-    border: 2px solid #38647a;
-    border-radius: 5px;
-    background-color: #050e16;
+    border: 2px solid #3f7597;
+    border-radius: 4px;
+    background-color: #06121f;
 }
 
 QCheckBox#mapSettingsOption::indicator:unchecked:hover {
-    border-color: #35c9f2;
-    background-color: #0a2534;
+    border-color: #57cfff;
+    background-color: #0b2940;
 }
 
 QCheckBox#mapSettingsOption::indicator:checked {
-    border-color: #8bc4d7;
-    background-color: #247a99;
+    border-color: #84ddfa;
+    background-color: #157fa9;
 }
 
 QCheckBox#mapSettingsOption::indicator:checked:hover {
-    border-color: #d7edf4;
-    background-color: #318cab;
+    border-color: #e1f8ff;
+    background-color: #209bc5;
 }
 
 QPushButton#mapSettingsCancelButton,
 QPushButton#mapSettingsApplyButton {
     min-width: 138px;
     min-height: 48px;
-    border-radius: 7px;
+    border-radius: 5px;
     font-size: 16px;
     font-weight: 800;
 }
 
 QPushButton#mapSettingsCancelButton {
-    color: #c7dce8;
-    background-color: #081925;
-    border: 1px solid #31566a;
+    color: #cbdde6;
+    background-color: #0b2032;
+    border: 1px solid #365f79;
 }
 
 QPushButton#mapSettingsCancelButton:hover {
-    background-color: #0c2b3b;
-    border-color: #4e91ae;
+    background-color: #12344d;
+    border-color: #5799b8;
 }
 
 QPushButton#mapSettingsCancelButton:pressed {
-    background-color: #071219;
-    border-color: #3a5663;
+    background-color: #081724;
+    border-color: #31566f;
 }
 
 QPushButton#mapSettingsApplyButton {
     color: #ffffff;
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                      stop:0 #2d89a8, stop:1 #1b617d);
-    border: 1px solid #66b0c9;
+                                      stop:0 #278fbd, stop:1 #155f86);
+    border: 1px solid #64c9ed;
 }
 
 QPushButton#mapSettingsApplyButton:hover {
     background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                      stop:0 #3a9bbb, stop:1 #21728e);
-    border-color: #b8dce8;
+                                      stop:0 #37acd6, stop:1 #19779e);
+    border-color: #d1f4ff;
 }
 
 QPushButton#mapSettingsApplyButton:pressed {
-    background-color: #18566e;
-    border-color: #4f91a8;
+    background-color: #124f72;
+    border-color: #4aa0c4;
 }
 
 QFrame#topSectionFrame, QFrame#bottomSectionFrame {
@@ -275,9 +279,10 @@ QFrame#objectListCard, QFrame#legendFrame {
 }
 
 QFrame#legendFrame {
-    background-color: #0a1b2d;
-    border-color: #2b526d;
-    border-top-color: #437f9f;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #12324a, stop:0.55 #0e2940, stop:1 #0b2034);
+    border-color: #376b8b;
+    border-top-color: #53a4c7;
 }
 
 QLabel#monitorTitleLabel, QLabel#mapTitleLabel, QLabel#eventLogTitleLabel,
@@ -289,20 +294,158 @@ QLabel#deviceStatusTitleLabel, QLabel#objectListTitleLabel {
     padding-left: 8px;
 }
 
-QLabel#cameraSelectLabel {
-    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                      stop:0 #153650, stop:1 #0c2238);
-    border: 1px solid #3a6b8b;
+QFrame#reportActionCard {
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 30px;
+    max-height: 30px;
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                      stop:0 #123b56, stop:0.55 #0d2c43, stop:1 #0a2033);
+    border: 1px solid #42b8df;
+    border-left: 3px solid #65dcff;
     border-radius: 4px;
-    color: #d7edf5;
-    font-weight: 700;
-    padding: 6px 12px;
 }
 
-QLabel#cameraSelectLabel:hover {
-    background-color: #17435f;
-    border-color: #63c5ec;
+QLabel#reportActionIconLabel {
+    background-color: transparent;
+    border: 0;
+}
+
+QLabel#reportActionTitleLabel {
+    color: #eafaff;
+    background-color: transparent;
+    border: 0;
+    font-family: "Segoe UI";
+    font-size: 13px;
+    font-weight: 800;
+}
+
+QPushButton#reportChannelButton1, QPushButton#reportChannelButton2,
+QPushButton#reportChannelButton3, QPushButton#reportChannelButton4 {
+    min-width: 62px;
+    max-width: 62px;
+    min-height: 30px;
+    max-height: 30px;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #16415f, stop:0.55 #0e304a, stop:1 #092237);
+    border: 1px solid #3b91b7;
+    border-top-color: #58c9ef;
+    border-radius: 4px;
+    color: #d3f5ff;
+    font-family: "Segoe UI";
+    font-size: 12px;
+    font-weight: 800;
+    padding: 0 6px;
+}
+
+QPushButton#reportChannelButton1:hover, QPushButton#reportChannelButton2:hover,
+QPushButton#reportChannelButton3:hover, QPushButton#reportChannelButton4:hover {
+    background-color: #175577;
+    border-color: #72dcff;
     color: #ffffff;
+}
+
+QPushButton#reportChannelButton1:pressed, QPushButton#reportChannelButton2:pressed,
+QPushButton#reportChannelButton3:pressed, QPushButton#reportChannelButton4:pressed {
+    background-color: #0a2b42;
+    border-color: #3989ac;
+    color: #9ddcf1;
+}
+
+QDialog#reportConfirmationDialog, QDialog#reportSuccessDialog {
+    background-color: transparent;
+}
+
+QFrame#reportConfirmationPanel, QFrame#reportSuccessPanel {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #123651, stop:0.42 #0c273d, stop:1 #071928);
+    border: 1px solid #50c8ee;
+    border-top-color: #79ddff;
+    border-radius: 8px;
+}
+
+QLabel#reportConfirmationIcon, QLabel#reportSuccessIcon {
+    background-color: transparent;
+    border: 0;
+}
+
+QLabel#reportConfirmationTitle, QLabel#reportSuccessTitle {
+    color: #eafaff;
+    background-color: transparent;
+    border: 0;
+    font-family: "Segoe UI";
+    font-size: 18px;
+    font-weight: 800;
+}
+
+QLabel#reportConfirmationMessage, QLabel#reportSuccessMessage {
+    color: #f4fbff;
+    background-color: #081d2e;
+    border: 1px solid #2f6685;
+    border-radius: 5px;
+    font-family: "Segoe UI";
+    font-size: 16px;
+    font-weight: 700;
+    padding: 18px 14px;
+}
+
+QPushButton#reportDialogCloseButton {
+    min-width: 32px;
+    max-width: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    background-color: #0d2a40;
+    border: 1px solid #396d8d;
+    border-radius: 5px;
+    color: #ccefff;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+QPushButton#reportDialogCloseButton:hover {
+    background-color: #17435f;
+    border-color: #67d5f7;
+    color: #ffffff;
+}
+
+QPushButton#reportDialogCancelButton, QPushButton#reportDialogConfirmButton,
+QPushButton#reportSuccessConfirmButton {
+    min-width: 104px;
+    min-height: 38px;
+    max-height: 38px;
+    border-radius: 5px;
+    font-family: "Segoe UI";
+    font-size: 14px;
+    font-weight: 800;
+}
+
+QPushButton#reportDialogCancelButton {
+    background-color: #0a2134;
+    border: 1px solid #396b89;
+    color: #c7dfeb;
+}
+
+QPushButton#reportDialogCancelButton:hover {
+    background-color: #123650;
+    border-color: #62c6e9;
+    color: #ffffff;
+}
+
+QPushButton#reportDialogConfirmButton, QPushButton#reportSuccessConfirmButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                      stop:0 #1a88b4, stop:1 #106085);
+    border: 1px solid #69ddff;
+    color: #ffffff;
+}
+
+QPushButton#reportDialogConfirmButton:hover, QPushButton#reportSuccessConfirmButton:hover {
+    background-color: #20a2d3;
+    border-color: #a3efff;
+}
+
+QPushButton#reportDialogCancelButton:pressed, QPushButton#reportDialogConfirmButton:pressed,
+QPushButton#reportSuccessConfirmButton:pressed {
+    padding-top: 1px;
 }
 
 QFrame#mapPlaceholderFrame, QFrame#eventLogBodyFrame, QFrame#deviceStatusBodyFrame,
@@ -465,6 +608,24 @@ ClickableVideoWidget[loading="true"] {
     border: 1px solid #3a7187;
 }
 
+QLabel#videoChannelLabel {
+    background-color: #061d2e;
+    border: 1px solid #45bde2;
+    border-top-color: #72dcff;
+    border-radius: 0;
+    color: #bfeeff;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 4px 9px;
+}
+
+QLabel#videoChannelLabel[expanded="true"] {
+    border-width: 2px;
+    border-radius: 0;
+    font-size: 18px;
+    padding: 7px 14px;
+}
+
 QFrame#videoTileFrame {
     background-color: #0c2539;
     border: 2px solid #0c2539;
@@ -493,7 +654,7 @@ QLabel#videoLoadingLabel {
 }
 
 QLabel#legendLabel {
-    color: #a9bfcc;
+    color: #f0f8fb;
     font-weight: 700;
 }
 

@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "network/DeviceStatusGateway.h"
+#include "network/MqttRuntimeConfig.h"
 
 class BlurFrameDispatcher;
 class MqttMessageRouter;
@@ -17,7 +18,7 @@ class MqttDeviceStatusGateway final : public DeviceStatusGateway {
 
 public:
     MqttDeviceStatusGateway(std::shared_ptr<MqttTransportFactory> transportFactory,
-                            std::shared_ptr<MqttMessageRouter> messageRouter, bool debugLogging,
+                            std::shared_ptr<MqttMessageRouter> messageRouter, MqttRuntimeConfig config,
                             QObject* parent = nullptr);
     ~MqttDeviceStatusGateway() override;
 
@@ -31,6 +32,7 @@ private:
     void dispatchMessages(MqttMessageBatch messages);
     void logReceivedMessage(const QByteArray& payload, const QString& topic) const;
     void logBlurFrame(const QString& topic, const BlurFrameData& frame);
+    void logRiskFrame(const QString& topic, const RiskFrameData& frame);
     void emitProtocolError(QString detail);
 
     std::shared_ptr<MqttTransportFactory> transportFactory_;
@@ -39,5 +41,9 @@ private:
     BlurFrameDispatcher* blurDispatcher_ = nullptr;
     RiskFrameDispatcher* riskDispatcher_ = nullptr;
     std::array<qint64, 4> lastBlurDebugLogMsec_{};
+    qint64 lastRiskDebugLogMsec_ = 0;
+    int blurDebugLogIntervalMsec_ = 0;
+    int riskDebugLogIntervalMsec_ = 0;
+    qsizetype maximumDebugPayloadLength_ = 0;
     bool debugLogging_ = true;
 };

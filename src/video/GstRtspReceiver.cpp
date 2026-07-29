@@ -17,25 +17,6 @@
 #include "video/BlurVideoFilter.h"
 
 namespace {
-constexpr int busPollIntervalMsec = 200;
-constexpr int rtspLatencyMsec = 300;
-constexpr int initialPacketTimeoutMsec = 10000;
-constexpr int initialFrameTimeoutMsec = 10000;
-
-constexpr int maxReconnectDelayMsec = 5000;
-constexpr int authenticationFailureReconnectDelayMsec = 120000;
-constexpr int stallTimeoutMsec = 8000;
-constexpr guint udpBufferSizeBytes = 4 * 1024 * 1024;
-
-constexpr int decodeQueueMaxBuffers = 8;
-constexpr qint64 decodeQueueMaxTimeNsec = 250LL * 1000 * 1000;
-
-constexpr int renderQueueMaxBuffers = 1;
-constexpr qint64 renderQueueMaxTimeNsec = 100LL * 1000 * 1000;
-
-constexpr qint64 minimumLoadingMsec = 700;
-constexpr int reconnectSpreadMsec = 3000;
-
 /**
  * @brief             지정한 GStreamer element factory가 설치되어 있는지 확인합니다.
  * @param factoryName  확인할 factory 이름
@@ -172,8 +153,11 @@ bool isAuthenticationFailure(const QString& errorText) {
  * @param outputWindowHandle  영상을 출력할 네이티브 윈도우 핸들
  * @param parent              Qt 객체 소유권 부모
  */
-GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, QObject* parent)
-    : StreamReceiver(parent), outputWindowHandle_(outputWindowHandle), blurProcessor_(rtspLatencyMsec) {
+GstRtspReceiver::GstRtspReceiver(guintptr outputWindowHandle, GstRtspReceiverConfig config, QObject* parent)
+    : StreamReceiver(parent),
+      outputWindowHandle_(outputWindowHandle),
+      config_(std::move(config)),
+      blurProcessor_(config_.blur) {
     busTimer_ = new QTimer(this);
     reconnectTimer_ = new QTimer(this);
     busTimer_->setTimerType(Qt::PreciseTimer);
@@ -252,7 +236,7 @@ void GstRtspReceiver::startPipeline() {
 
     if (hasCredentialPlaceholder(url_)) {
         emit loadingChanged(false);
-        emit errorOccurred(QStringLiteral("RTSP password placeholder is still set in network/rtsp.h"));
+        emit errorOccurred(QStringLiteral("RTSP password placeholder is still set in app_config.json"));
         emit statusChanged(QStringLiteral("RTSP configuration error"));
         return;
     }
@@ -302,10 +286,17 @@ void GstRtspReceiver::startPipeline() {
             "d3d11videosink name=videosink force-aspect-ratio=true enable-last-sample=false qos=false "
             "sync=false async=false")
             .arg(decoderChain())
-            .arg(decodeQueueMaxBuffers)
-            .arg(decodeQueueMaxTimeNsec)
-            .arg(renderQueueMaxBuffers)
-            .arg(renderQueueMaxTimeNsec);
+            .arg(config_.decodeQueueMaximumBuffers)
+            .arg(config_.decodeQueueMaximumTimeMsec * 1000LL * 1000LL)
+            .arg(config_.renderQueueMaximumBuffers)
+            .arg(config_.renderQueueMaximumTimeMsec * 1000LL * 1000LL)
+            .replace(QStringLiteral("qos=false"),
+                     QStringLiteral("qos=%1").arg(config_.sinkQos ? QStringLiteral("true") : QStringLiteral("false")))
+            .replace(QStringLiteral("sync=false"),
+                     QStringLiteral("sync=%1").arg(config_.sinkSync ? QStringLiteral("true") : QStringLiteral("false")))
+            .replace(
+                QStringLiteral("async=false"),
+                QStringLiteral("async=%1").arg(config_.sinkAsync ? QStringLiteral("true") : QStringLiteral("false")));
 
     qDebug().noquote() << "[GstRtspReceiver] Manual RTSP pipeline:" << videoChainDesc;
 
@@ -359,19 +350,22 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
-    g_object_set(source, "latency", rtspLatencyMsec, "drop-on-latency", TRUE, "tcp-timeout",
-                 static_cast<guint64>(20000000), "timeout", static_cast<guint64>(5000000), "probation", 2,
-                 "udp-buffer-size", udpBufferSizeBytes, nullptr);
-    setOptionalBooleanProperty(source, "do-rtsp-keep-alive", TRUE);
-    setOptionalBooleanProperty(source, "udp-reconnect", TRUE);
+    g_object_set(source, "latency", config_.latencyMsec, "drop-on-latency", config_.dropOnLatency ? TRUE : FALSE,
+                 "tcp-timeout", static_cast<guint64>(config_.tcpTimeoutUsec), "timeout",
+                 static_cast<guint64>(config_.udpTimeoutUsec), "probation", config_.probationPackets, "udp-buffer-size",
+                 static_cast<guint>(config_.udpBufferSizeBytes), nullptr);
+    setOptionalBooleanProperty(source, "do-rtsp-keep-alive", config_.rtspKeepAlive ? TRUE : FALSE);
+    setOptionalBooleanProperty(source, "udp-reconnect", config_.udpReconnect ? TRUE : FALSE);
+    setOptionalBooleanProperty(source, "add-reference-timestamp-meta",
+                               config_.addReferenceTimestampMeta ? TRUE : FALSE);
 
     gst_bin_add_many(GST_BIN(pipeline_), source, videoChain, nullptr);
 
     g_signal_connect(source, "select-stream", G_CALLBACK(&GstRtspReceiver::onSelectStream), this);
     g_signal_connect(source, "pad-added", G_CALLBACK(&GstRtspReceiver::onPadAdded), this);
     g_signal_connect(source, "before-send", G_CALLBACK(&GstRtspReceiver::onBeforeSend), this);
-    qDebug().noquote() << "[GstRtspReceiver] rtspsrc latency:" << rtspLatencyMsec
-                       << "drop-on-latency:true protocols:defaults";
+    qDebug().noquote() << "[GstRtspReceiver] rtspsrc latency:" << config_.latencyMsec
+                       << "drop-on-latency:" << config_.dropOnLatency << "protocols:defaults";
 
     if (GstBus* bus = gst_element_get_bus(pipeline_)) {
         gst_bus_set_sync_handler(bus, &GstRtspReceiver::onBusSyncMessage, this, nullptr);
@@ -461,7 +455,7 @@ void GstRtspReceiver::startPipeline() {
         return;
     }
 
-    busTimer_->start(busPollIntervalMsec);
+    busTimer_->start(config_.busPollIntervalMsec);
 
     emit statusChanged("Connecting");
 }
@@ -524,8 +518,8 @@ void GstRtspReceiver::scheduleReconnect(const QString& reason, int overrideDelay
     }
 
     const int backoffStep = std::min(reconnectAttempts_, 4);
-    const int baseDelayMsec = std::min(maxReconnectDelayMsec, 1000 << backoffStep);
-    const int channelSpreadMsec = static_cast<int>(qHash(url_) % reconnectSpreadMsec);
+    const int baseDelayMsec = std::min(config_.maximumReconnectDelayMsec, 1000 << backoffStep);
+    const int channelSpreadMsec = static_cast<int>(qHash(url_) % config_.reconnectSpreadMsec);
     const int delayMsec = overrideDelayMsec > 0 ? overrideDelayMsec : baseDelayMsec + channelSpreadMsec;
     ++reconnectAttempts_;
 
@@ -616,8 +610,8 @@ void GstRtspReceiver::markFirstFrame() {
     firstFrameReported_ = true;
     reconnectAttempts_ = 0;
 
-    const qint64 elapsed = startupTimer_.isValid() ? startupTimer_.elapsed() : minimumLoadingMsec;
-    const int remainingMsec = static_cast<int>(std::max<qint64>(0, minimumLoadingMsec - elapsed));
+    const qint64 elapsed = startupTimer_.isValid() ? startupTimer_.elapsed() : config_.minimumLoadingMsec;
+    const int remainingMsec = static_cast<int>(std::max<qint64>(0, config_.minimumLoadingMsec - elapsed));
 
     emit statusChanged(QString("First frame in %1 ms").arg(elapsed));
     emit firstFrameReceived();
@@ -641,7 +635,7 @@ void GstRtspReceiver::checkStall() {
     const qint64 startupElapsedMsec = startupTimer_.isValid() ? startupTimer_.elapsed() : 0;
 
     if (!gotAnyPacket_.load(std::memory_order_relaxed)) {
-        if (startupElapsedMsec > initialPacketTimeoutMsec) {
+        if (startupElapsedMsec > config_.initialPacketTimeoutMsec) {
             const QString stage = videoPadLinked_.load(std::memory_order_acquire)
                                       ? QStringLiteral("H264 pad linked but no depay packet arrived")
                                       : QStringLiteral("no H264 RTP pad/packet arrived");
@@ -663,7 +657,7 @@ void GstRtspReceiver::checkStall() {
 
         const gint64 elapsedSinceFirstPacketMsec = (nowUsec - firstPacketTime) / 1000;
 
-        if (elapsedSinceFirstPacketMsec > initialFrameTimeoutMsec) {
+        if (elapsedSinceFirstPacketMsec > config_.initialFrameTimeoutMsec) {
             const gint64 packetAgeMsec = (nowUsec - lastPacketTimeUsec_.load(std::memory_order_relaxed)) / 1000;
             const QString reason = QStringLiteral("no decoded frame for %1 ms after first RTP packet; packetAge=%2 ms")
                                        .arg(elapsedSinceFirstPacketMsec)
@@ -683,7 +677,7 @@ void GstRtspReceiver::checkStall() {
 
     const gint64 elapsedMsec = (nowUsec - lastFrameTime) / 1000;
 
-    if (elapsedMsec <= stallTimeoutMsec) {
+    if (elapsedMsec <= config_.stallTimeoutMsec) {
         return;
     }
 
@@ -722,11 +716,16 @@ GstPadProbeReturn GstRtspReceiver::onFrameProbe(GstPad*, GstPadProbeInfo*, gpoin
  * @param userData   GstRtspReceiver 포인터
  * @return           pad probe 처리 결과
  */
-GstPadProbeReturn GstRtspReceiver::onPacketProbe(GstPad*, GstPadProbeInfo*, gpointer userData) {
+GstPadProbeReturn GstRtspReceiver::onPacketProbe(GstPad*, GstPadProbeInfo* info, gpointer userData) {
     auto* receiver = static_cast<GstRtspReceiver*>(userData);
 
     if (!receiver) {
         return GST_PAD_PROBE_OK;
+    }
+
+    if (info) {
+        GstBuffer* buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+        receiver->blurProcessor_.observeVideoBuffer(buffer);
     }
 
     const gint64 packetTimeUsec = g_get_monotonic_time();
@@ -885,13 +884,13 @@ GstBusSyncReply GstRtspReceiver::onBusSyncMessage(GstBus*, GstMessage* message, 
  * @return  GStreamer bin description 일부로 사용할 decoder chain
  */
 QString GstRtspReceiver::decoderChain() const {
-    const QByteArray decoderMode = qgetenv("QTCCTV_DECODER_MODE").trimmed().toLower();
+    const QByteArray decoderMode = config_.decoderMode.toLatin1();
 
     if (decoderMode == "d3d11" && hasGstFactory("d3d11h264dec") && hasGstFactory("d3d11download")) {
         return "d3d11h264dec discard-corrupted-frames=true automatic-request-sync-points=true ! d3d11download";
     }
 
-    if (hasGstFactory("avdec_h264")) {
+    if (decoderMode != "d3d11" && hasGstFactory("avdec_h264")) {
         return "avdec_h264 max-threads=2 ! video/x-raw,format=I420";
     }
 
@@ -948,8 +947,9 @@ void GstRtspReceiver::pollBus() {
                 gst_object_unref(bus);
 
                 teardownPipeline();
-                scheduleReconnect(errorText,
-                                  isAuthenticationFailure(errorText) ? authenticationFailureReconnectDelayMsec : 0);
+                scheduleReconnect(errorText, isAuthenticationFailure(errorText)
+                                                 ? config_.authenticationFailureReconnectDelayMsec
+                                                 : 0);
                 return;
             }
 

@@ -19,6 +19,7 @@ public:
 
     void prependEntry(const EventLogEntry& entry);
     void prependEntries(QVector<EventLogEntry> entries);
+    void clear();
 
 private:
     enum EventLogColumn {

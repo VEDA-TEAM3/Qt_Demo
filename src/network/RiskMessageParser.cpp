@@ -57,13 +57,6 @@ bool parseRiskLevel(const QJsonValue& value, DigitalTwinRiskLevel& riskLevel) {
 }  // namespace
 
 /**
- * @brief       수신 토픽이 통합 위험 프레임 토픽인지 확인합니다.
- * @param topic MQTT 토픽
- * @return      veda/risk이면 true
- */
-bool RiskMessageParser::matchesTopic(const QString& topic) { return topic == QStringLiteral("veda/risk"); }
-
-/**
  * @brief         공유 계약의 RiskFrame을 지도 입력 프레임으로 변환합니다.
  * @param payload MQTT JSON payload
  * @param topic   수신 토픽
@@ -72,11 +65,6 @@ bool RiskMessageParser::matchesTopic(const QString& topic) { return topic == QSt
  * @return        계약 검증과 변환에 성공하면 true
  */
 bool RiskMessageParser::parse(const QByteArray& payload, const QString& topic, RiskFrameData& frame, QString& error) {
-    if (!matchesTopic(topic)) {
-        error = QStringLiteral("Invalid risk topic: %1").arg(topic);
-        return false;
-    }
-
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {

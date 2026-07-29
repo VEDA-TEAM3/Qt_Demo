@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "network/BlurFrameDispatcher.h"
+#include "network/LatestBlurFrameBuffer.h"
 #include "network/MqttMessageRouter.h"
 #include "network/MqttTransport.h"
 #include "network/MqttTransportFactory.h"
@@ -12,13 +13,11 @@
 
 namespace {
 constexpr int mqttDeviceChannelCount = 4;
-constexpr int blurDebugLogIntervalMsec = 1000;
-constexpr qsizetype maximumDebugPayloadLength = 512;
 
-QString debugPayloadText(const QByteArray& payload) {
+QString debugPayloadText(const QByteArray& payload, qsizetype maximumLength) {
     QString text = QString::fromUtf8(payload).simplified();
-    if (text.size() > maximumDebugPayloadLength) {
-        text = text.left(maximumDebugPayloadLength) + QStringLiteral("...");
+    if (maximumLength > 0 && text.size() > maximumLength) {
+        text = text.left(maximumLength) + QStringLiteral("...");
     }
     return text;
 }
@@ -32,16 +31,19 @@ QString debugPayloadText(const QByteArray& payload) {
  * @param parent            Qt 객체 소유권을 연결할 부모 객체
  */
 MqttDeviceStatusGateway::MqttDeviceStatusGateway(std::shared_ptr<MqttTransportFactory> transportFactory,
-                                                 std::shared_ptr<MqttMessageRouter> messageRouter, bool debugLogging,
-                                                 QObject* parent)
+                                                 std::shared_ptr<MqttMessageRouter> messageRouter,
+                                                 MqttRuntimeConfig config, QObject* parent)
     : DeviceStatusGateway(parent),
       transportFactory_(std::move(transportFactory)),
       messageRouter_(std::move(messageRouter)),
-      debugLogging_(debugLogging) {
-    blurDispatcher_ = new BlurFrameDispatcher(this);
+      blurDebugLogIntervalMsec_(config.blurDebugLogIntervalMsec),
+      riskDebugLogIntervalMsec_(config.riskDebugLogIntervalMsec),
+      maximumDebugPayloadLength_(config.maximumDebugPayloadLength),
+      debugLogging_(config.connection.debugLogging) {
+    blurDispatcher_ = new BlurFrameDispatcher(config.dispatcher, std::make_shared<LatestBlurFrameBuffer>(), this);
     connect(blurDispatcher_, &BlurFrameDispatcher::frameReady, this, &DeviceStatusGateway::blurFrameReceived);
 
-    riskDispatcher_ = new RiskFrameDispatcher(this);
+    riskDispatcher_ = new RiskFrameDispatcher(config.dispatcher, this);
     connect(riskDispatcher_, &RiskFrameDispatcher::frameReady, this, &DeviceStatusGateway::riskFrameReceived);
 }
 
@@ -67,6 +69,7 @@ void MqttDeviceStatusGateway::start() {
     }
 
     lastBlurDebugLogMsec_.fill(0);
+    lastRiskDebugLogMsec_ = 0;
     blurDispatcher_->start();
     riskDispatcher_->start();
 
@@ -100,6 +103,8 @@ void MqttDeviceStatusGateway::handleConnectionChanged(bool connected) {
     emit brokerConnectionChanged(connected);
     if (connected) {
         subscribeToTopics();
+    } else if (riskDispatcher_) {
+        riskDispatcher_->reset();
     }
 }
 
@@ -139,13 +144,8 @@ void MqttDeviceStatusGateway::handleMessage(const QByteArray& payload, const QSt
     for (const BlurFrameData& frame : result.messages.blurFrames) {
         logBlurFrame(topic, frame);
     }
-    if (debugLogging_) {
-        for (const RiskFrameData& frame : result.messages.riskFrames) {
-            qInfo().noquote() << QStringLiteral("[MQTT RISK] topic=%1 ts=%2 objects=%3")
-                                     .arg(topic)
-                                     .arg(frame.sourceTimestamp)
-                                     .arg(frame.objects.size());
-        }
+    for (const RiskFrameData& frame : result.messages.riskFrames) {
+        logRiskFrame(topic, frame);
     }
 
     dispatchMessages(std::move(result.messages));
@@ -172,7 +172,7 @@ void MqttDeviceStatusGateway::logReceivedMessage(const QByteArray& payload, cons
     qInfo().noquote() << QStringLiteral("[MQTT RX] topic=%1 bytes=%2 payload=%3")
                              .arg(topic)
                              .arg(payload.size())
-                             .arg(debugPayloadText(payload));
+                             .arg(debugPayloadText(payload, maximumDebugPayloadLength_));
 }
 
 /** @brief 고빈도 블러 수신 상태를 채널별 제한 주기로 출력합니다. */
@@ -183,7 +183,7 @@ void MqttDeviceStatusGateway::logBlurFrame(const QString& topic, const BlurFrame
 
     const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
     qint64& lastLogMsec = lastBlurDebugLogMsec_[static_cast<std::size_t>(frame.channelIndex)];
-    if (lastLogMsec > 0 && nowMsec - lastLogMsec < blurDebugLogIntervalMsec) {
+    if (blurDebugLogIntervalMsec_ <= 0 || (lastLogMsec > 0 && nowMsec - lastLogMsec < blurDebugLogIntervalMsec_)) {
         return;
     }
 
@@ -193,6 +193,25 @@ void MqttDeviceStatusGateway::logBlurFrame(const QString& topic, const BlurFrame
                              .arg(frame.channelIndex)
                              .arg(frame.sourceTimestamp)
                              .arg(frame.regions.size());
+}
+
+/** @brief 통합 위험 수신 상태를 설정된 주기로 제한하여 출력합니다. */
+void MqttDeviceStatusGateway::logRiskFrame(const QString& topic, const RiskFrameData& frame) {
+    if (!debugLogging_) {
+        return;
+    }
+
+    const qint64 nowMsec = QDateTime::currentMSecsSinceEpoch();
+    if (riskDebugLogIntervalMsec_ > 0 && lastRiskDebugLogMsec_ > 0 &&
+        nowMsec - lastRiskDebugLogMsec_ < riskDebugLogIntervalMsec_) {
+        return;
+    }
+
+    lastRiskDebugLogMsec_ = nowMsec;
+    qInfo().noquote() << QStringLiteral("[MQTT RISK] topic=%1 ts=%2 objects=%3")
+                             .arg(topic)
+                             .arg(frame.sourceTimestamp)
+                             .arg(frame.objects.size());
 }
 
 /** @brief MQTT 계약 또는 전송 오류를 기존 상태 서비스 경로로 전달합니다. */

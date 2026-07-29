@@ -1,5 +1,6 @@
 #include "model/RiskObjectTracker.h"
 
+#include <QHash>
 #include <QProcessEnvironment>
 #include <QSet>
 #include <algorithm>
@@ -9,8 +10,15 @@
 namespace {
 constexpr qint64 riskSyncOffsetMsec = 100;
 constexpr qint64 sourceRestartGapMsec = 5000;
+constexpr qint64 sourceTimestampRollbackResetMsec = 1000;
 constexpr qint64 objectRetentionMsec = 350;
+constexpr qint64 warningPulseRepeatMsec = 1200;
+constexpr qint64 dangerPulseRepeatMsec = 1500;
 constexpr qsizetype maximumHistorySize = 16;
+
+qint64 pulseRepeatMsec(DigitalTwinRiskLevel riskLevel) {
+    return riskLevel == DigitalTwinRiskLevel::Danger ? dangerPulseRepeatMsec : warningPulseRepeatMsec;
+}
 
 bool readConfiguredWorldBounds(QRectF& bounds) {
     const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
@@ -31,6 +39,14 @@ bool readConfiguredWorldBounds(QRectF& bounds) {
     return true;
 }
 
+bool readInvertWorldY() {
+    const QString value = QProcessEnvironment::systemEnvironment()
+                              .value(QStringLiteral("VEDA_MAP_INVERT_Y"), QStringLiteral("1"))
+                              .trimmed()
+                              .toLower();
+    return value != QStringLiteral("0") && value != QStringLiteral("false") && value != QStringLiteral("no");
+}
+
 int channelIndexForPosition(const QPointF& position) {
     const int column = position.x() >= 0.5 ? 1 : 0;
     const int row = position.y() >= 0.5 ? 1 : 0;
@@ -45,6 +61,7 @@ QPointF interpolatePosition(const QPointF& first, const QPointF& second, double 
 /** @brief 통합 RiskFrame을 지도 객체 스냅샷으로 변환하는 추적기를 생성합니다. */
 RiskObjectTracker::RiskObjectTracker() {
     hasConfiguredWorldBounds_ = readConfiguredWorldBounds(configuredWorldBounds_);
+    invertWorldY_ = readInvertWorldY();
 }
 
 /** @brief 수신 이력과 객체 이동 이력을 초기화합니다. */
@@ -53,6 +70,9 @@ void RiskObjectTracker::reset() {
     retainedObjects_.clear();
     lastSeenSourceTimes_.clear();
     previousPositions_.clear();
+    previousPairRiskLevels_.clear();
+    nextPairPulseTimesMsec_.clear();
+    pendingRiskEvents_.clear();
     automaticWorldBounds_ = {};
     lastArrivalTimeMsec_ = 0;
     sourceClockOffsetMsec_ = 0;
@@ -71,12 +91,13 @@ bool RiskObjectTracker::submitFrame(RiskFrameData frame, qint64 arrivalTimeMsec)
         return false;
     }
 
-    if (lastArrivalTimeMsec_ > 0 && arrivalTimeMsec - lastArrivalTimeMsec_ > sourceRestartGapMsec) {
-        history_.clear();
-        retainedObjects_.clear();
-        lastSeenSourceTimes_.clear();
-        previousPositions_.clear();
-        lastRenderSourceTimestamp_ = 0;
+    const bool arrivalGapDetected =
+        lastArrivalTimeMsec_ > 0 && arrivalTimeMsec - lastArrivalTimeMsec_ > sourceRestartGapMsec;
+    const bool sourceTimestampRolledBack =
+        !history_.isEmpty() &&
+        history_.constLast().sourceTimestamp - frame.sourceTimestamp > sourceTimestampRollbackResetMsec;
+    if (arrivalGapDetected || sourceTimestampRolledBack) {
+        reset();
     }
     lastArrivalTimeMsec_ = arrivalTimeMsec;
 
@@ -137,6 +158,7 @@ bool RiskObjectTracker::hasFrame() const { return !history_.isEmpty(); }
  * @return               UI 렌더링용 디지털 트윈 스냅샷
  */
 DigitalTwinSnapshot RiskObjectTracker::buildSnapshot(qint64 localTimeMsec) {
+    pendingRiskEvents_.clear();
     if (history_.isEmpty()) {
         return {};
     }
@@ -202,8 +224,63 @@ DigitalTwinSnapshot RiskObjectTracker::buildSnapshot(qint64 localTimeMsec) {
         }
     }
 
+    QHash<QString, DigitalTwinRiskLevel> currentPairRiskLevels;
+    currentPairRiskLevels.reserve(snapshot.pairRiskStates.size());
+    for (const DigitalTwinPairRiskState& pairState : snapshot.pairRiskStates) {
+        const QString pairKey = pairState.firstObjectId + QStringLiteral("|") + pairState.secondObjectId;
+        currentPairRiskLevels.insert(pairKey, pairState.riskLevel);
+
+        const DigitalTwinRiskLevel previousRiskLevel =
+            previousPairRiskLevels_.value(pairKey, DigitalTwinRiskLevel::Normal);
+        const bool dangerToWarning =
+            previousRiskLevel == DigitalTwinRiskLevel::Danger && pairState.riskLevel == DigitalTwinRiskLevel::Warning;
+        const bool riskLevelChanged = previousRiskLevel != pairState.riskLevel;
+        const bool repeatDue = localTimeMsec >= nextPairPulseTimesMsec_.value(pairKey, 0);
+
+        if (dangerToWarning) {
+            nextPairPulseTimesMsec_.insert(pairKey, localTimeMsec + pulseRepeatMsec(pairState.riskLevel));
+            continue;
+        }
+
+        if (!riskLevelChanged && !repeatDue) {
+            continue;
+        }
+
+        const auto firstPosition = currentPositions.constFind(pairState.firstObjectId);
+        const auto secondPosition = currentPositions.constFind(pairState.secondObjectId);
+        if (firstPosition == currentPositions.cend() || secondPosition == currentPositions.cend()) {
+            continue;
+        }
+
+        DigitalTwinRiskEvent riskEvent;
+        riskEvent.firstObjectId = pairState.firstObjectId;
+        riskEvent.secondObjectId = pairState.secondObjectId;
+        riskEvent.position = (*firstPosition + *secondPosition) * 0.5;
+        riskEvent.riskLevel = pairState.riskLevel;
+        pendingRiskEvents_.append(std::move(riskEvent));
+        nextPairPulseTimesMsec_.insert(pairKey, localTimeMsec + pulseRepeatMsec(pairState.riskLevel));
+    }
+
+    for (auto iterator = nextPairPulseTimesMsec_.begin(); iterator != nextPairPulseTimesMsec_.end();) {
+        if (currentPairRiskLevels.contains(iterator.key())) {
+            ++iterator;
+        } else {
+            iterator = nextPairPulseTimesMsec_.erase(iterator);
+        }
+    }
+    previousPairRiskLevels_ = std::move(currentPairRiskLevels);
     previousPositions_ = std::move(currentPositions);
     return snapshot;
+}
+
+/**
+ * @brief   마지막 스냅샷 계산에서 생성된 위험 펄스 이벤트를 반환합니다.
+ * @return  UI 오버레이에 한 번씩 전달할 위험 이벤트 목록
+ */
+QVector<DigitalTwinRiskEvent> RiskObjectTracker::takeRiskEvents() {
+    QVector<DigitalTwinRiskEvent> events = std::move(pendingRiskEvents_);
+    pendingRiskEvents_.clear();
+    return events;
 }
 
 /**
@@ -236,16 +313,24 @@ RiskFrameData RiskObjectTracker::interpolatedFrame(qint64 sourceTimestamp) const
     RiskFrameData result = membershipFrame;
     result.sourceTimestamp = sourceTimestamp;
 
+    QHash<qint64, const RiskObjectData*> previousObjects;
+    QHash<qint64, const RiskObjectData*> nextObjects;
+    previousObjects.reserve(previousFrame.objects.size());
+    nextObjects.reserve(nextFrame.objects.size());
+    for (const RiskObjectData& object : previousFrame.objects) {
+        previousObjects.insert(object.globalId, &object);
+    }
+    for (const RiskObjectData& object : nextFrame.objects) {
+        nextObjects.insert(object.globalId, &object);
+    }
+
     for (RiskObjectData& object : result.objects) {
-        const auto previousObject =
-            std::find_if(previousFrame.objects.cbegin(), previousFrame.objects.cend(),
-                         [&object](const RiskObjectData& candidate) { return candidate.globalId == object.globalId; });
-        const auto nextObject =
-            std::find_if(nextFrame.objects.cbegin(), nextFrame.objects.cend(),
-                         [&object](const RiskObjectData& candidate) { return candidate.globalId == object.globalId; });
-        if (previousObject != previousFrame.objects.cend() && nextObject != nextFrame.objects.cend() &&
-            previousObject->objectClass == nextObject->objectClass) {
-            object.worldPosition = interpolatePosition(previousObject->worldPosition, nextObject->worldPosition, ratio);
+        const auto previousObject = previousObjects.constFind(object.globalId);
+        const auto nextObject = nextObjects.constFind(object.globalId);
+        if (previousObject != previousObjects.cend() && nextObject != nextObjects.cend() &&
+            (*previousObject)->objectClass == (*nextObject)->objectClass) {
+            object.worldPosition =
+                interpolatePosition((*previousObject)->worldPosition, (*nextObject)->worldPosition, ratio);
         }
     }
     return result;
@@ -278,10 +363,12 @@ void RiskObjectTracker::updateAutomaticWorldBounds(const RiskFrameData& frame) {
     } else {
         const double width = qMax(1.0, maxX - minX);
         const double height = qMax(1.0, maxY - minY);
+        const double centerX = (minX + maxX) * 0.5;
+        const double centerY = (minY + maxY) * 0.5;
         const double horizontalMargin = width * 0.08;
         const double verticalMargin = height * 0.08;
-        observedBounds = QRectF(minX - horizontalMargin, minY - verticalMargin, width + horizontalMargin * 2.0,
-                                height + verticalMargin * 2.0);
+        observedBounds = QRectF(centerX - width * 0.5 - horizontalMargin, centerY - height * 0.5 - verticalMargin,
+                                width + horizontalMargin * 2.0, height + verticalMargin * 2.0);
     }
 
     if (!hasAutomaticWorldBounds_) {
@@ -299,6 +386,8 @@ QPointF RiskObjectTracker::normalizedWorldPosition(const QPointF& worldPosition)
         return QPointF(0.5, 0.5);
     }
 
-    return QPointF(qBound(0.0, (worldPosition.x() - bounds.left()) / bounds.width(), 1.0),
-                   qBound(0.0, (worldPosition.y() - bounds.top()) / bounds.height(), 1.0));
+    const double normalizedX = qBound(0.0, (worldPosition.x() - bounds.left()) / bounds.width(), 1.0);
+    const double sourceY = qBound(0.0, (worldPosition.y() - bounds.top()) / bounds.height(), 1.0);
+    const double normalizedY = invertWorldY_ ? 1.0 - sourceY : sourceY;
+    return QPointF(normalizedX, normalizedY);
 }

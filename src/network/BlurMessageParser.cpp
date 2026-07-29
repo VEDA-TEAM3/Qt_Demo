@@ -3,7 +3,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
 #include <cmath>
 #include <utility>
 
@@ -52,28 +51,17 @@ bool readBlurFiniteNumber(const QJsonObject& object, const QString& name, double
 }  // namespace
 
 /**
- * @brief       토픽이 채널별 블러 메타데이터 토픽인지 확인합니다.
- * @param topic MQTT 토픽
- * @return      veda/ch/0..3/blur 형식이면 true
- */
-bool BlurMessageParser::matchesTopic(const QString& topic) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/ch/[0-3]/blur$"));
-    return topicPattern.match(topic).hasMatch();
-}
-
-/**
  * @brief         블러 메타데이터 payload를 내부 프레임 모델로 변환합니다.
  * @param payload MQTT JSON payload
  * @param topic   수신 토픽
+ * @param topicWireChannel 토픽 wildcard에서 검증한 채널 인덱스
  * @param frame   변환된 블러 프레임
  * @param error   실패 원인
  * @return        변환에 성공하면 true
  */
-bool BlurMessageParser::parse(const QByteArray& payload, const QString& topic, BlurFrameData& frame,
-                                  QString& error) {
-    static const QRegularExpression topicPattern(QStringLiteral("^veda/ch/([0-3])/blur$"));
-    const QRegularExpressionMatch match = topicPattern.match(topic);
-    if (!match.hasMatch()) {
+bool BlurMessageParser::parse(const QByteArray& payload, const QString& topic, int topicWireChannel,
+                              BlurFrameData& frame, QString& error) {
+    if (topicWireChannel < 0 || topicWireChannel >= blurDeviceChannelCount) {
         error = QStringLiteral("Invalid blur topic: %1").arg(topic);
         return false;
     }
@@ -97,7 +85,6 @@ bool BlurMessageParser::parse(const QByteArray& payload, const QString& topic, B
         return false;
     }
 
-    const int topicWireChannel = match.captured(1).toInt();
     if (payloadChannel != topicWireChannel) {
         error = QStringLiteral("Blur topic/payload channel mismatch on %1").arg(topic);
         return false;
@@ -159,8 +146,7 @@ bool BlurMessageParser::parse(const QByteArray& payload, const QString& topic, B
 
         BlurRegionData region;
         region.id = id;
-        region.targetType = objectClass == QStringLiteral("Head") ? BlurTargetType::Face
-                                                                  : BlurTargetType::LicensePlate;
+        region.targetType = objectClass == QStringLiteral("Head") ? BlurTargetType::Face : BlurTargetType::LicensePlate;
         region.normalizedBox = QRectF(QPointF(clippedLeft, clippedTop), QPointF(clippedRight, clippedBottom));
         frame.regions.append(std::move(region));
     }

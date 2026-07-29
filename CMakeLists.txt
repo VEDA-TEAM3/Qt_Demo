@@ -24,6 +24,9 @@ qt_add_executable(Qtcctvclient
 
     src/main.cpp
 
+    include/config/ApplicationConfig.h
+    src/config/ApplicationConfig.cpp
+
     include/ui/mainwindow.h
     src/ui/mainwindow.cpp
     src/ui/mainwindow.ui
@@ -31,6 +34,10 @@ qt_add_executable(Qtcctvclient
     src/ui/ClickableVideoWidget.cpp
     include/ui/dialogs/MapSettingsDialog.h
     src/ui/dialogs/MapSettingsDialog.cpp
+    include/ui/dialogs/ReportConfirmationDialog.h
+    src/ui/dialogs/ReportConfirmationDialog.cpp
+    include/ui/dialogs/ReportSuccessDialog.h
+    src/ui/dialogs/ReportSuccessDialog.cpp
     include/ui/DashboardLayout.h
     include/ui/panels/DashboardPanelFactory.h
     include/ui/panels/DefaultDashboardPanelFactory.h
@@ -67,12 +74,15 @@ qt_add_executable(Qtcctvclient
 
     include/video/StreamReceiver.h
     include/video/StreamReceiverFactory.h
+    include/video/VideoRuntimeConfig.h
     include/video/GstStreamReceiverFactory.h
     src/video/GstStreamReceiverFactory.cpp
     include/video/GstRtspReceiver.h
     src/video/GstRtspReceiver.cpp
     include/video/BlurProcessor.h
     src/video/BlurProcessor.cpp
+    include/video/VideoUtcClockMapper.h
+    src/video/VideoUtcClockMapper.cpp
     include/video/BlurVideoFilter.h
     src/video/BlurVideoFilter.cpp
 
@@ -96,9 +106,14 @@ qt_add_executable(Qtcctvclient
 
     include/network/DeviceStatusGateway.h
     src/network/DeviceStatusGateway.cpp
+    include/network/ReportGateway.h
+    src/network/ReportGateway.cpp
+    include/network/SlackReportGateway.h
+    src/network/SlackReportGateway.cpp
+    include/model/ReportRequest.h
     include/network/DeviceStatusGatewayFactory.h
     include/network/MqttConnectionConfig.h
-    src/network/MqttConnectionConfig.cpp
+    include/network/MqttRuntimeConfig.h
     include/network/MqttSubscription.h
     include/network/MqttTransport.h
     include/network/MqttTransportFactory.h
@@ -107,6 +122,8 @@ qt_add_executable(Qtcctvclient
     include/network/QtMqttTransportFactory.h
     src/network/QtMqttTransportFactory.cpp
     include/network/MqttTopicHandler.h
+    include/network/MqttTopicFilter.h
+    src/network/MqttTopicFilter.cpp
     include/network/MqttMessageRouter.h
     src/network/MqttMessageRouter.cpp
     include/network/DeviceStatusTopicHandler.h
@@ -120,6 +137,12 @@ qt_add_executable(Qtcctvclient
     src/network/BlurMessageParser.cpp
     include/network/BlurFrameDispatcher.h
     src/network/BlurFrameDispatcher.cpp
+    include/network/BlurFrameBuffer.h
+    include/network/LatestBlurFrameBuffer.h
+    src/network/LatestBlurFrameBuffer.cpp
+    include/network/RiskFrameBuffer.h
+    include/network/LatestRiskFrameBuffer.h
+    src/network/LatestRiskFrameBuffer.cpp
     include/network/RiskMessageParser.h
     src/network/RiskMessageParser.cpp
     include/network/RiskFrameDispatcher.h
@@ -129,10 +152,18 @@ qt_add_executable(Qtcctvclient
     src/network/MqttDeviceStatusGatewayFactory.cpp
     include/network/DeviceStatusService.h
     src/network/DeviceStatusService.cpp
-    include/network/rtsp.h
     include/video/StreamSessionManager.h
     src/video/StreamSessionManager.cpp
 )
+
+set(QTCCTV_LOCAL_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/config/app_config.json")
+set(QTCCTV_EXAMPLE_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/config/app_config.example.json")
+if(EXISTS "${QTCCTV_LOCAL_CONFIG}")
+    set(QTCCTV_CONFIG_SOURCE "${QTCCTV_LOCAL_CONFIG}")
+else()
+    set(QTCCTV_CONFIG_SOURCE "${QTCCTV_EXAMPLE_CONFIG}")
+endif()
+configure_file("${QTCCTV_CONFIG_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/config/app_config.json" COPYONLY)
 
 qt_add_resources(Qtcctvclient "style_resources"
     PREFIX "/styles"
@@ -161,6 +192,7 @@ qt_add_resources(Qtcctvclient "icon_resources"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_waring.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/led_danger.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/main.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/report_icon.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_off.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_safe.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/sensor_danger.png"

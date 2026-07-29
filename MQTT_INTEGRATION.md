@@ -75,6 +75,11 @@ VEDA_MAP_MAX_Y=<bottom bound in meters>
 
 If all four values are absent or invalid, Qt auto-expands bounds from received positions. Values already in `[0,1]` are used as normalized coordinates.
 
+`RiskFrame.pos` follows the shared world-coordinate contract, where positive Y points north/up. Qt therefore flips the
+Y axis when mapping it to screen coordinates. Set `VEDA_MAP_INVERT_Y=0` only when an upstream source already provides
+screen-style coordinates whose positive Y points down. Calibrated `VEDA_MAP_MIN_*` and `VEDA_MAP_MAX_*` values are
+required for exact CH-01 through CH-04 quadrant assignment; automatic bounds are only a safe fallback.
+
 ## Build
 
 The checked-in preset expects Qt 6.11.1 with the Qt MQTT module and MinGW 13.1:

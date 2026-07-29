@@ -10,16 +10,12 @@
 #include <QtMqtt/QMqttTopicName>
 #include <utility>
 
-namespace {
-constexpr int reconnectIntervalMsec = 3000;
-}  // namespace
-
 /**
  * @brief         Qt MQTT 기반 TLS 전송 객체를 생성합니다.
  * @param config  broker, 인증서 및 재생성 가능한 client 설정
  */
 QtMqttTransport::QtMqttTransport(MqttConnectionConfig config) : config_(std::move(config)) {
-    reconnectTimer_.setInterval(reconnectIntervalMsec);
+    reconnectTimer_.setInterval(config_.reconnectIntervalMsec);
     reconnectTimer_.setSingleShot(true);
     connect(&reconnectTimer_, &QTimer::timeout, this, &QtMqttTransport::connectToBroker);
 }

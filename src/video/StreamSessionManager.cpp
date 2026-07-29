@@ -6,20 +6,20 @@
 #include <QTimer>
 #include <utility>
 
+#include "network/LatestBlurFrameBuffer.h"
 #include "video/StreamReceiver.h"
 #include "video/StreamReceiverFactory.h"
-
-namespace {
-constexpr int receiverStartSpacingMsec = 3000;
-}  // namespace
 
 /**
  * @brief                  스트림 세션 관리자를 생성합니다.
  * @param receiverFactory  채널별 StreamReceiver 생성 factory
  * @param parent           Qt 객체 소유권을 연결할 부모 객체
  */
-StreamSessionManager::StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory, QObject* parent)
-    : QObject(parent), receiverFactory_(std::move(receiverFactory)) {}
+StreamSessionManager::StreamSessionManager(std::shared_ptr<StreamReceiverFactory> receiverFactory,
+                                           int receiverStartSpacingMsec, QObject* parent)
+    : QObject(parent),
+      receiverFactory_(std::move(receiverFactory)),
+      receiverStartSpacingMsec_(receiverStartSpacingMsec) {}
 
 /**
  * @brief 실행 중인 모든 수신기와 worker thread를 정리합니다.
@@ -83,11 +83,22 @@ void StreamSessionManager::submitBlurFrame(BlurFrameData frame) {
         }
 
         const auto receiver = worker.receiver;
+        const auto frameBuffer = worker.blurFrameBuffer;
+        if (!frameBuffer || !frameBuffer->submit(std::move(frame))) {
+            return;
+        }
+
         const bool invoked = QMetaObject::invokeMethod(
             receiver.get(),
-            [receiver, frame = std::move(frame)]() mutable { receiver->setBlurFrame(std::move(frame)); },
+            [receiver, frameBuffer]() {
+                QVector<BlurFrameData> frames = frameBuffer->takeLatestFrames();
+                for (BlurFrameData& pendingFrame : frames) {
+                    receiver->setBlurFrame(std::move(pendingFrame));
+                }
+            },
             Qt::QueuedConnection);
         if (!invoked) {
+            frameBuffer->cancelPendingDelivery();
             qWarning() << "[StreamSessionManager] Failed to deliver blur metadata for channel"
                        << worker.config.channelIndex;
         }
@@ -182,6 +193,7 @@ void StreamSessionManager::createWorkers() {
         worker.config = config;
         worker.thread = std::move(receiverThread);
         worker.receiver = std::move(receiver);
+        worker.blurFrameBuffer = std::make_shared<LatestBlurFrameBuffer>();
 
         connectReceiverSignals(worker);
 
@@ -268,7 +280,7 @@ void StreamSessionManager::startReceiverSequentially(qsizetype receiverIndex) {
         emit errorOccurred(worker.config.channelIndex, errorText);
     }
 
-    QTimer::singleShot(receiverStartSpacingMsec, this,
+    QTimer::singleShot(receiverStartSpacingMsec_, this,
                        [this, receiverIndex]() { startReceiverSequentially(receiverIndex + 1); });
 }
 
@@ -287,6 +299,10 @@ void StreamSessionManager::stopWorkers() {
 
     for (const ReceiverWorker& worker : receiverWorkers_) {
         const auto& receiver = worker.receiver;
+
+        if (worker.blurFrameBuffer) {
+            worker.blurFrameBuffer->clear();
+        }
 
         if (!receiver) {
             continue;

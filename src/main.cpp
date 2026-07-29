@@ -6,10 +6,13 @@
 #include <QFile>
 #include <QIcon>
 #include <QStringList>
+#include <QtGlobal>
 #include <memory>
 #include <utility>
 
+#include "config/ApplicationConfig.h"
 #include "network/MqttDeviceStatusGatewayFactory.h"
+#include "network/SlackReportGateway.h"
 #include "ui/mainwindow.h"
 #include "ui/panels/DefaultDashboardPanelFactory.h"
 #include "video/GstStreamReceiverFactory.h"
@@ -25,8 +28,8 @@ void configureGstreamerMinGwRuntime() {
 #ifdef Q_OS_WIN
     const QString moduleDirectory = QDir(QDir::tempPath()).filePath(QStringLiteral("QtDemo/gio-modules"));
     if (!QDir().mkpath(moduleDirectory)) {
-        qWarning().noquote() << QStringLiteral("[GStreamer] Failed to create isolated GIO module directory: %1")
-                                    .arg(moduleDirectory);
+        qWarning().noquote()
+            << QStringLiteral("[GStreamer] Failed to create isolated GIO module directory: %1").arg(moduleDirectory);
         return;
     }
 
@@ -37,8 +40,8 @@ void configureGstreamerMinGwRuntime() {
     }
 
     g_unsetenv("GIO_EXTRA_MODULES");
-    qInfo().noquote() << QStringLiteral("[GStreamer] Using MinGW runtime with isolated GIO modules: %1")
-                             .arg(moduleDirectory);
+    qInfo().noquote()
+        << QStringLiteral("[GStreamer] Using MinGW runtime with isolated GIO modules: %1").arg(moduleDirectory);
 #endif
 }
 
@@ -47,7 +50,7 @@ void configureGstreamerMinGwRuntime() {
  * @param app  스타일을 적용할 QApplication
  */
 void loadApplicationStyle(QApplication& app) {
-    const QStringList stylePaths = {":/styles/app.qss", "C:/Qtprojects/Qtcctvclient/styles/app.qss"};
+    const QStringList stylePaths = {QStringLiteral(":/styles/app.qss")};
 
     for (const QString& path : stylePaths) {
         QFile styleFile(path);
@@ -80,14 +83,26 @@ int main(int argc, char* argv[]) {
         app.setWindowIcon(QIcon(QStringLiteral(":/icons/main.png")));
         loadApplicationStyle(app);
 
+        const ApplicationConfigLoadResult configResult = ApplicationConfigLoader::load();
+        if (!configResult.successful) {
+            qCritical().noquote() << QStringLiteral("[Config] %1").arg(configResult.error);
+            gst_deinit();
+            return 1;
+        }
+        qInfo().noquote() << QStringLiteral("[Config] Loaded %1").arg(configResult.sourcePath);
+
         {
-            auto streamReceiverFactory = std::make_shared<GstStreamReceiverFactory>();
-            auto deviceStatusGatewayFactory = std::make_shared<MqttDeviceStatusGatewayFactory>();
+            auto streamReceiverFactory = std::make_shared<GstStreamReceiverFactory>(configResult.config.video.receiver);
+            auto deviceStatusGatewayFactory =
+                std::make_shared<MqttDeviceStatusGatewayFactory>(configResult.config.mqtt);
             auto dashboardPanelFactory = std::make_shared<DefaultDashboardPanelFactory>();
+            auto reportGateway = std::make_shared<SlackReportGateway>(
+                qEnvironmentVariable("SLACK_BOT_TOKEN"), qEnvironmentVariable("SLACK_REPORT_TARGET"),
+                qEnvironmentVariable("SLACK_REPORT_USER_ID"), qEnvironmentVariable("SLACK_REPORT_CHANNEL_ID"));
             MainWindow window(std::move(streamReceiverFactory), std::move(deviceStatusGatewayFactory),
-                              std::move(dashboardPanelFactory));
+                              std::move(dashboardPanelFactory), std::move(reportGateway), configResult.config.video);
             window.setWindowIcon(app.windowIcon());
-            window.resize(1680, 945);
+            window.resize(configResult.config.window.width, configResult.config.window.height);
             window.show();
 
             ret = app.exec();

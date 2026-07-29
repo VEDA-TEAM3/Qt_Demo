@@ -7,28 +7,35 @@
 #include <QGridLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPixmap>
+#include <QPushButton>
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QTimer>
+#include <QUuid>
 #include <QVBoxLayout>
 #include <QVector>
 #include <QWidget>
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <utility>
 
+#include "model/DigitalTwinTypes.h"
 #include "network/DeviceStatusGatewayFactory.h"
 #include "network/DeviceStatusService.h"
-#include "network/rtsp.h"
+#include "network/ReportGateway.h"
 #include "ui/ClickableVideoWidget.h"
 #include "ui/DashboardLayout.h"
 #include "ui/DigitalTwinMapWidget.h"
 #include "ui/VideoRiskBorderFrame.h"
 #include "ui/dialogs/MapSettingsDialog.h"
+#include "ui/dialogs/ReportConfirmationDialog.h"
+#include "ui/dialogs/ReportSuccessDialog.h"
 #include "ui/panels/DashboardPanelCoordinator.h"
 #include "ui/panels/DashboardPanelFactory.h"
 #include "ui/panels/DeviceStatusPanel.h"
@@ -39,7 +46,6 @@
 #include "video/StreamSessionManager.h"
 
 namespace {
-constexpr int initialStreamStartDelayMsec = 1000;
 constexpr int requiredCctvChannelCount = 4;
 const QString normalStatusColor = QStringLiteral("#38e86a");
 const QString disconnectedStatusColor = QStringLiteral("#ff4b4b");
@@ -54,14 +60,17 @@ const QString disconnectedStatusColor = QStringLiteral("#ff4b4b");
  */
 MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFactory,
                        std::shared_ptr<DeviceStatusGatewayFactory> deviceStatusGatewayFactory,
-                       std::shared_ptr<DashboardPanelFactory> dashboardPanelFactory, QWidget* parent)
+                       std::shared_ptr<DashboardPanelFactory> dashboardPanelFactory,
+                       std::shared_ptr<ReportGateway> reportGateway, VideoRuntimeConfig videoConfig, QWidget* parent)
     : QMainWindow(parent),
       ui_(std::make_shared<Ui::MainWindow>()),
       deviceStatusGatewayFactory_(std::move(deviceStatusGatewayFactory)),
-      dashboardPanelFactory_(std::move(dashboardPanelFactory)) {
+      dashboardPanelFactory_(std::move(dashboardPanelFactory)),
+      reportGateway_(std::move(reportGateway)),
+      videoConfig_(std::move(videoConfig)) {
     ui_->setupUi(this);
 
-    setupStreamConfigs();
+    streamConfigs_ = videoConfig_.streams;
     setupDashboardLayout();
     setupTopBarStatuses();
     setupClock();
@@ -69,17 +78,139 @@ MainWindow::MainWindow(std::shared_ptr<StreamReceiverFactory> streamReceiverFact
     setupDashboardPanelCoordinator();
     setupDeviceStatusService();
     setupVideoViewEvents();
+    setupReportActions();
     setupStreamSessionManager(std::move(streamReceiverFactory));
 }
 
 /**
- * @brief   대시보드에서 사용할 카메라 스트림 설정을 구성합니다.
+ * @brief 채널별 신고 버튼과 재사용 가능한 확인 다이얼로그를 연결합니다.
  */
-void MainWindow::setupStreamConfigs() {
-    streamConfigs_ = {{QStringLiteral("cam-01"), QStringLiteral("CH - 01"), Network::Rtsp::zone1(), 0, true},
-                      {QStringLiteral("cam-02"), QStringLiteral("CH - 02"), Network::Rtsp::zone2(), 1, true},
-                      {QStringLiteral("cam-03"), QStringLiteral("CH - 03"), Network::Rtsp::zone3(), 2, true},
-                      {QStringLiteral("cam-04"), QStringLiteral("CH - 04"), Network::Rtsp::zone4(), 3, true}};
+void MainWindow::setupReportActions() {
+    reportConfirmationDialog_ = new ReportConfirmationDialog(this);
+    reportSuccessDialog_ = new ReportSuccessDialog(this);
+
+    connect(reportConfirmationDialog_, &ReportConfirmationDialog::reportConfirmed, this, &MainWindow::sendReport);
+
+    if (reportGateway_) {
+        connect(reportGateway_.get(), &ReportGateway::reportSucceeded, this, [this](int channelNumber, const QString&) {
+            reportInProgress_ = false;
+            setReportButtonsEnabled(true);
+            openReportSuccessDialog(channelNumber);
+        });
+        connect(reportGateway_.get(), &ReportGateway::reportFailed, this, &MainWindow::handleReportFailure);
+    }
+
+    const std::array<QPushButton*, requiredCctvChannelCount> reportButtons = {
+        ui_->reportChannelButton1, ui_->reportChannelButton2, ui_->reportChannelButton3, ui_->reportChannelButton4};
+
+    for (int channelIndex = 0; channelIndex < static_cast<int>(reportButtons.size()); ++channelIndex) {
+        connect(reportButtons[static_cast<std::size_t>(channelIndex)], &QPushButton::clicked, this,
+                [this, channelIndex]() { openReportConfirmationDialog(channelIndex + 1); });
+    }
+}
+
+/**
+ * @brief               선택한 채널의 현재 상태를 포함한 Slack 신고를 비동기로 요청합니다.
+ * @param channelNumber 사용자에게 표시되는 1부터 4까지의 채널 번호
+ */
+void MainWindow::sendReport(int channelNumber) {
+    if (reportInProgress_) {
+        return;
+    }
+
+    if (!reportGateway_) {
+        handleReportFailure(channelNumber, QStringLiteral("신고 전송기가 구성되지 않았습니다."));
+        return;
+    }
+
+    reportInProgress_ = true;
+    setReportButtonsEnabled(false);
+
+    ReportRequest request;
+    request.reportId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    request.riskLevel = reportRiskLevel(channelNumber);
+    request.detail = QStringLiteral("CCTV 관제 사용자가 안전 센터 신고를 요청했습니다.");
+    request.reportedAt = QDateTime::currentDateTime();
+    request.channelNumber = channelNumber;
+    reportGateway_->sendReport(std::move(request));
+}
+
+/**
+ * @brief               Slack 신고 실패를 안내하고 신고 버튼을 다시 활성화합니다.
+ * @param channelNumber 실패한 신고의 채널 번호
+ * @param error         Slack 또는 네트워크 오류 설명
+ */
+void MainWindow::handleReportFailure(int channelNumber, const QString& error) {
+    reportInProgress_ = false;
+    setReportButtonsEnabled(true);
+    qWarning().noquote() << QStringLiteral("[REPORT ERROR] channel=%1 error=%2").arg(channelNumber).arg(error);
+    QMessageBox::warning(
+        this, QStringLiteral("신고 실패"),
+        QStringLiteral("CH %1 신고를 전송하지 못했습니다.\n%2").arg(channelNumber, 2, 10, QLatin1Char('0')).arg(error));
+}
+
+/**
+ * @brief         네 채널 신고 버튼의 활성 상태를 함께 변경합니다.
+ * @param enabled 버튼 활성 여부
+ */
+void MainWindow::setReportButtonsEnabled(bool enabled) {
+    const std::array<QPushButton*, requiredCctvChannelCount> reportButtons = {
+        ui_->reportChannelButton1, ui_->reportChannelButton2, ui_->reportChannelButton3, ui_->reportChannelButton4};
+    for (QPushButton* button : reportButtons) {
+        if (button) {
+            button->setEnabled(enabled);
+        }
+    }
+}
+
+/**
+ * @brief               신고 시점의 채널 위험 단계를 사용자 표시 문자열로 변환합니다.
+ * @param channelNumber 사용자에게 표시되는 1부터 4까지의 채널 번호
+ * @return              정상, 주의 또는 위험
+ */
+QString MainWindow::reportRiskLevel(int channelNumber) const {
+    const qsizetype channelIndex = channelNumber - 1;
+    if (channelIndex < 0 || channelIndex >= latestVideoRiskLevels_.size()) {
+        return QStringLiteral("정상");
+    }
+
+    if (latestVideoRiskLevels_[channelIndex] == DigitalTwinRiskLevel::Danger) {
+        return QStringLiteral("위험");
+    }
+    if (latestVideoRiskLevels_[channelIndex] == DigitalTwinRiskLevel::Warning) {
+        return QStringLiteral("주의");
+    }
+    return QStringLiteral("정상");
+}
+
+/**
+ * @brief               선택한 채널의 신고 여부를 묻는 모달 다이얼로그를 엽니다.
+ * @param channelNumber 사용자에게 표시할 1부터 4까지의 채널 번호
+ */
+void MainWindow::openReportConfirmationDialog(int channelNumber) {
+    if (!reportConfirmationDialog_) {
+        return;
+    }
+
+    reportConfirmationDialog_->setChannelNumber(channelNumber);
+    reportConfirmationDialog_->open();
+    reportConfirmationDialog_->raise();
+    reportConfirmationDialog_->activateWindow();
+}
+
+/**
+ * @brief               선택한 채널의 안전 센터 신고 완료 안내를 표시합니다.
+ * @param channelNumber 사용자에게 표시할 1부터 4까지의 채널 번호
+ */
+void MainWindow::openReportSuccessDialog(int channelNumber) {
+    if (!reportSuccessDialog_) {
+        return;
+    }
+
+    reportSuccessDialog_->setChannelNumber(channelNumber);
+    reportSuccessDialog_->open();
+    reportSuccessDialog_->raise();
+    reportSuccessDialog_->activateWindow();
 }
 
 /**
@@ -101,6 +232,16 @@ void MainWindow::setupDashboardLayout() {
     ui_->settingsLabel->installEventFilter(this);
     ui_->settingsLabel->setToolTip(QStringLiteral("설정"));
 
+    const QPixmap reportIcon(QStringLiteral(":/icons/report_icon.png"));
+    if (!reportIcon.isNull()) {
+        ui_->reportActionIconLabel->setPixmap(
+            reportIcon.scaled(QSize(23, 23), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    } else {
+        qWarning() << "[MainWindow] Failed to load report icon resource";
+    }
+    ui_->reportActionIconLabel->setContentsMargins(0, 3, 0, 0);
+    ui_->reportActionIconLabel->setAlignment(Qt::AlignCenter);
+
     mapSettingsDialog_ = new MapSettingsDialog(this);
     connect(mapSettingsDialog_, &MapSettingsDialog::settingsApplied, this,
             [this](const DigitalTwinMapDisplaySettings& settings, bool videoRiskBordersEnabled, bool faceBlurEnabled,
@@ -117,7 +258,6 @@ void MainWindow::setupDashboardLayout() {
                 }
                 updateVideoRiskBorders(latestVideoRiskLevels_);
             });
-    updateCameraSelectionLabel(nullptr);
 }
 
 /**
@@ -272,6 +412,8 @@ void MainWindow::setupDashboardPanelCoordinator() {
 
     connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::simulationSnapshotUpdated, dashboardPanelCoordinator_,
             &DashboardPanelCoordinator::consumeDigitalTwinSnapshot, Qt::QueuedConnection);
+    connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::liveRiskStreamActivated, dashboardPanelCoordinator_,
+            &DashboardPanelCoordinator::resetEventLogForLiveInput, Qt::QueuedConnection);
     connect(ui_->digitalTwinMapWidget, &DigitalTwinMapWidget::channelRiskLevelsChanged, this,
             &MainWindow::updateVideoRiskBorders);
 }
@@ -300,7 +442,7 @@ void MainWindow::setupDeviceStatusService() {
         connect(deviceStatusService_.get(), &DeviceStatusService::channelStatusesReceived, ui_->digitalTwinMapWidget,
                 &DigitalTwinMapWidget::applyDeviceChannelStatuses, Qt::QueuedConnection);
         connect(deviceStatusService_.get(), &DeviceStatusService::riskFrameReceived, ui_->digitalTwinMapWidget,
-                &DigitalTwinMapWidget::applyRiskFrame, Qt::QueuedConnection);
+                &DigitalTwinMapWidget::applyRiskFrame);
         connect(deviceStatusService_.get(), &DeviceStatusService::centralEventReceived, ui_->digitalTwinMapWidget,
                 &DigitalTwinMapWidget::applyCentralEvent, Qt::QueuedConnection);
     }
@@ -354,7 +496,7 @@ void MainWindow::showEvent(QShowEvent* event) {
 
     streamSessionStarted_ = true;
 
-    QTimer::singleShot(initialStreamStartDelayMsec, this, [this]() {
+    QTimer::singleShot(videoConfig_.initialStartDelayMsec, this, [this]() {
         if (streamSessionManager_) {
             streamSessionManager_->start();
         }
@@ -399,6 +541,9 @@ void MainWindow::setupVideoViewEvents() {
             qDebug() << "[MainWindow] Not ClickableVideoWidget:" << widget->objectName();
             continue;
         }
+
+        clickable->setChannelName(QStringLiteral("CH %1").arg(index + 1, 2, 10, QLatin1Char('0')));
+        clickable->setExpandedView(false);
 
         grid->removeWidget(widget);
 
@@ -481,7 +626,8 @@ void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory
         return;
     }
 
-    streamSessionManager_ = new StreamSessionManager(std::move(receiverFactory), this);
+    streamSessionManager_ =
+        new StreamSessionManager(std::move(receiverFactory), videoConfig_.receiverStartSpacingMsec, this);
     streamSessionManager_->setBlurTargetsEnabled(faceBlurEnabled_, licensePlateBlurEnabled_);
 
     if (deviceStatusService_) {
@@ -524,6 +670,15 @@ void MainWindow::setupStreamSessionManager(std::shared_ptr<StreamReceiverFactory
 
         streamChannelReady_[channelIndex] = true;
         updateStreamConnectionStatus();
+
+        auto* videoWidget = qobject_cast<ClickableVideoWidget*>(videoWidgets_.value(channelIndex));
+        if (!videoWidget) {
+            return;
+        }
+
+        videoWidget->refreshChannelLabel();
+        QTimer::singleShot(150, videoWidget, &ClickableVideoWidget::refreshChannelLabel);
+        QTimer::singleShot(600, videoWidget, &ClickableVideoWidget::refreshChannelLabel);
     });
 
     QVector<StreamOutputBinding> bindings;
@@ -594,6 +749,12 @@ void MainWindow::expandVideo(QWidget* targetWidget) {
 
     QFrame* targetFrame = videoTileFrames_[targetIndex];
 
+    for (auto* widget : videoWidgets_) {
+        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(widget)) {
+            videoWidget->setExpandedView(widget == targetWidget);
+        }
+    }
+
     for (auto* frame : videoTileFrames_) {
         if (frame && frame != targetFrame) {
             frame->hide();
@@ -607,7 +768,6 @@ void MainWindow::expandVideo(QWidget* targetWidget) {
     targetFrame->raise();
 
     expandedWidget_ = targetWidget;
-    updateCameraSelectionLabel(targetWidget);
 }
 
 /**
@@ -640,30 +800,11 @@ void MainWindow::restoreVideoGrid() {
         }
     }
 
+    for (auto* widget : videoWidgets_) {
+        if (auto* videoWidget = qobject_cast<ClickableVideoWidget*>(widget)) {
+            videoWidget->setExpandedView(false);
+        }
+    }
+
     expandedWidget_ = nullptr;
-    updateCameraSelectionLabel(nullptr);
-}
-
-/**
- * @brief              현재 선택된 영상 구역명을 헤더 라벨에 반영합니다.
- * @param targetWidget  선택된 영상 위젯, nullptr이면 전체 구역
- */
-void MainWindow::updateCameraSelectionLabel(QWidget* targetWidget) {
-    if (!ui_->cameraSelectLabel) {
-        return;
-    }
-
-    if (!targetWidget) {
-        ui_->cameraSelectLabel->setText(QStringLiteral("전체 채널"));
-        return;
-    }
-
-    const qsizetype index = videoWidgets_.indexOf(targetWidget);
-
-    if (index < 0 || index >= streamConfigs_.size()) {
-        ui_->cameraSelectLabel->setText(QStringLiteral("전체 채널"));
-        return;
-    }
-
-    ui_->cameraSelectLabel->setText(streamConfigs_[index].name);
 }
