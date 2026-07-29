@@ -104,7 +104,6 @@ int pulseRepeatTicksForRiskLevel(DigitalTwinRiskLevel riskLevel) {
     return 0;
 }
 
-
 /**
  * @brief               위험 단계에서 주의 단계로 낮아지는 전환인지 확인합니다.
  * @param previousRisk  이전 tick의 객체 쌍 위험 단계

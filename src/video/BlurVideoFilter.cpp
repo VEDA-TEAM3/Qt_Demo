@@ -83,8 +83,7 @@ bool BlurVideoFilter::ensureRegistered() {
             return;
         }
 
-        registered =
-            gst_element_register(nullptr, blurFactoryName, GST_RANK_NONE, gst_qt_blur_filter_get_type());
+        registered = gst_element_register(nullptr, blurFactoryName, GST_RANK_NONE, gst_qt_blur_filter_get_type());
     });
 
     return registered;

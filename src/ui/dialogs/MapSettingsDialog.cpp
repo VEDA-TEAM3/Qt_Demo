@@ -6,8 +6,8 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPainter>
 #include <QPaintEvent>
+#include <QPainter>
 #include <QPen>
 #include <QPolygonF>
 #include <QPushButton>
@@ -184,9 +184,7 @@ void MapSettingsDialog::setSettings(const DigitalTwinMapDisplaySettings& setting
  * @brief         CCTV 경고·위험 테두리 알림의 체크 상태를 설정합니다.
  * @param enabled 테두리 알림 표시 여부
  */
-void MapSettingsDialog::setVideoRiskBordersEnabled(bool enabled) {
-    videoRiskBordersCheckBox_->setChecked(enabled);
-}
+void MapSettingsDialog::setVideoRiskBordersEnabled(bool enabled) { videoRiskBordersCheckBox_->setChecked(enabled); }
 
 /**
  * @brief                     얼굴·차량 번호판 블러의 체크 상태를 설정합니다.

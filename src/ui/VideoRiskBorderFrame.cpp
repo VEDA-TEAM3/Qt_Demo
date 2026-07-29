@@ -38,8 +38,7 @@ void VideoRiskBorderFrame::setRiskLevel(DigitalTwinRiskLevel riskLevel) {
 
     riskLevel_ = riskLevel;
     borderAnimation_.stop();
-    borderAnimation_.setDuration(riskLevel == DigitalTwinRiskLevel::Normal ? fadeOutDurationMsec
-                                                                           : fadeInDurationMsec);
+    borderAnimation_.setDuration(riskLevel == DigitalTwinRiskLevel::Normal ? fadeOutDurationMsec : fadeInDurationMsec);
     borderAnimation_.setStartValue(borderColor_);
     borderAnimation_.setEndValue(colorForRiskLevel(riskLevel));
     borderAnimation_.start();

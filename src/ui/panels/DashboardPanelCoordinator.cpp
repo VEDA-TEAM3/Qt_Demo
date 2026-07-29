@@ -19,8 +19,7 @@ constexpr int objectListFlushIntervalMsec = 200;
  * @param objectListPanel    실시간 객체 목록 패널
  * @param parent             Qt 객체 소유권을 연결할 부모 객체
  */
-DashboardPanelCoordinator::DashboardPanelCoordinator(DeviceStatusPanel* deviceStatusPanel,
-                                                     EventLogPanel* eventLogPanel,
+DashboardPanelCoordinator::DashboardPanelCoordinator(DeviceStatusPanel* deviceStatusPanel, EventLogPanel* eventLogPanel,
                                                      ObjectListPanel* objectListPanel, QObject* parent)
     : QObject(parent),
       deviceStatusPanel_(deviceStatusPanel),

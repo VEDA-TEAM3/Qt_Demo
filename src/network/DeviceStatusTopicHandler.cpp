@@ -60,8 +60,7 @@ bool parseChannelOutputState(const QJsonObject& object, DeviceOutputState& outpu
         !readBoolean(object, QStringLiteral("ledGreen"), outputs.ledGreen) ||
         !readBoolean(object, QStringLiteral("sirenOn"), outputs.beacon) ||
         !readBoolean(object, QStringLiteral("buzzerOn"), outputs.buzzer)) {
-        error = QStringLiteral(
-            "status must contain boolean ledRed, ledYellow, ledGreen, sirenOn and buzzerOn fields");
+        error = QStringLiteral("status must contain boolean ledRed, ledYellow, ledGreen, sirenOn and buzzerOn fields");
         return false;
     }
 

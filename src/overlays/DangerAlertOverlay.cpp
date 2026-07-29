@@ -93,8 +93,7 @@ void DangerAlertOverlay::updateGeometryForViewport(const QSize& viewportSize) {
     const int proportionalWidth = viewportSize.width() * alertWidthPercent / 100;
     const int availableWidth = qMax(1, viewportSize.width() - alertHorizontalMargin * 2);
     const int alertWidth = qMin(qBound(alertMinimumWidth, proportionalWidth, alertMaximumWidth), availableWidth);
-    const QPixmap scaledPixmap =
-        sourcePixmap_.scaledToWidth(alertWidth, Qt::SmoothTransformation);
+    const QPixmap scaledPixmap = sourcePixmap_.scaledToWidth(alertWidth, Qt::SmoothTransformation);
 
     setPixmap(scaledPixmap);
     resize(scaledPixmap.size());

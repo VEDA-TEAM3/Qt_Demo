@@ -158,13 +158,12 @@ void EventLogPanel::setupUi() {
     scrollHeaderCover_ = new QWidget(verticalScrollBar);
     scrollHeaderCover_->setObjectName(QStringLiteral("eventLogScrollHeaderCover"));
     scrollHeaderCover_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    connect(verticalScrollBar, &QScrollBar::rangeChanged, this,
-            [this](int, int) {
-                QTimer::singleShot(0, this, [this]() {
-                    resizeColumns();
-                    updateScrollHeaderCover();
-                });
-            });
+    connect(verticalScrollBar, &QScrollBar::rangeChanged, this, [this](int, int) {
+        QTimer::singleShot(0, this, [this]() {
+            resizeColumns();
+            updateScrollHeaderCover();
+        });
+    });
     layout->addWidget(table_);
 
     resizeColumns();

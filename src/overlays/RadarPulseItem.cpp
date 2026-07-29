@@ -23,9 +23,7 @@ constexpr int dangerAnimationDurationMsec = 1800;
  * @param value  제한 전 진행률
  * @return       제한된 진행률
  */
-qreal clampedProgress(qreal value) {
-    return std::clamp(value, static_cast<qreal>(0.0), static_cast<qreal>(1.0));
-}
+qreal clampedProgress(qreal value) { return std::clamp(value, static_cast<qreal>(0.0), static_cast<qreal>(1.0)); }
 }  // namespace
 
 /**

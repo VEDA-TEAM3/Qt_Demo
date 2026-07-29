@@ -107,8 +107,8 @@ void BlurFrameDispatcher::flushPendingFrames() {
     if (lastStatisticsLogMsec_ == 0 || nowMsec - lastStatisticsLogMsec_ >= statisticsLogIntervalMsec) {
         const quint64 coalescedCount = frameBuffer_->takeCoalescedFrameCount();
         qDebug().noquote() << QStringLiteral("[MQTT BLUR DISPATCH] delivered=%1 coalesced=%2")
-                                 .arg(deliveredFrameCount_)
-                                 .arg(coalescedCount);
+                                  .arg(deliveredFrameCount_)
+                                  .arg(coalescedCount);
         lastStatisticsLogMsec_ = nowMsec;
         deliveredFrameCount_ = 0;
     }

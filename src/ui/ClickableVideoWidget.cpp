@@ -195,8 +195,7 @@ void ClickableVideoWidget::refreshChannelLabel() {
 #ifdef Q_OS_WIN
     const HWND labelWindow = reinterpret_cast<HWND>(channelLabel_->winId());
     if (labelWindow) {
-        SetWindowPos(labelWindow, HWND_TOP, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        SetWindowPos(labelWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
 #endif
 }

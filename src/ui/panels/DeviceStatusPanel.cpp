@@ -248,8 +248,7 @@ void DeviceStatusPanel::updateChannelWidgets(int channelIndex) {
     }
 
     if (status.feedbackHealth == DeviceFeedbackHealth::Failed) {
-        widgets.card->setToolTip(
-            QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
+        widgets.card->setToolTip(QStringLiteral("마지막 확정 상태 표시 중\n상태 확인 실패: %1").arg(status.detail));
     } else if (status.feedbackHealth == DeviceFeedbackHealth::Confirmed) {
         widgets.card->setToolTip(QStringLiteral("장비 출력 피드백 확인됨"));
     } else {
